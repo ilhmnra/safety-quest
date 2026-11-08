@@ -26,7 +26,7 @@ Tests cover movement, road lane and cue timing, gaze, PPE and tag state, machine
 
 ## Audio
 
-- [Truck air horn recording by goose278](https://freesound.org/people/goose278/sounds/174819/), bundled from the [CC0 source](https://creativecommons.org/publicdomain/zero/1.0/). Playback uses an excerpt with a short fade and directional panning.
+- [Truck air horn recording by goose278](https://freesound.org/people/goose278/sounds/174819/), bundled from the [CC0 source](https://creativecommons.org/publicdomain/zero/1.0/) as a short PCM WAV excerpt trimmed to the horn onset. Playback uses directional panning when Web Audio is available.
 - “You've got mail!” was synthesized for this project with an English Windows System.Speech voice. The other effects and ending music are synthesized in the browser.
 
 ## References

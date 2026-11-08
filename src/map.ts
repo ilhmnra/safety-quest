@@ -20,6 +20,7 @@ export const START: Point = [0, 22.7];
 export const PRESS: Point = [-4.8, -7.2];
 export const DESK: Point = [7.6, -9.65];
 export const ROAD = { near: 15.55, far: 7.25, width: 1.85, lanes: [13.7,9.2] as const };
+export const WALK_SPEED=3.3;
 export const PREP_TABLE:Point=[4.55,-4.27];
 export const PRESS_Z = -12.18;
 export const pressX: Record<Press,number> = {a:-7.65,b:-1.95};

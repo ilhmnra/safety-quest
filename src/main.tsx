@@ -20,7 +20,11 @@ function label(target:Target) {
 
 function direction(s:Session) {
   const active=objective(s);
-  if(usingCrossing(s)) return s.roadClear?'Road clear. Cross now.':s.passage?'Wait at the curb for both trucks.':'Look left and right from the curb.';
+  if(usingCrossing(s)) {
+    if(s.roadClear) return 'Road clear. Cross now.';
+    if(s.trafficSide) return `Truck approaching from the ${s.trafficSide}. Wait at the curb.`;
+    return 'Look left and right from the curb.';
+  }
   if(active==='crossing') return 'Approach the zebra crossing.';
   if(active==='door') return 'Follow the entrance sign.';
   if(active==='ppe') return 'Find the PPE cabinet inside.';
@@ -238,7 +242,7 @@ function App() {
         {s.safety.tagHeld&&<span className="held-tag" title="Out-of-service tag carried">TAG</span>}
         {!s.safety.ppe.length&&!s.safety.tagHeld&&<span>Equipment</span>}
       </div>}
-      {atCurb&&!s.focus&&<div className="guide"><div className="guide-text" role="status"><Icon name={s.passage?'warning':'aim'} size={16}/> {direction(s)}</div></div>}
+      {atCurb&&!s.focus&&<div className="guide"><div className="guide-text" role="status"><Icon name={s.trafficSide?'warning':'aim'} size={16}/> {direction(s)}</div></div>}
     </div>}
     {s.started&&s.safety.clipboard&&!s.film&&panel!=='ending'&&<button className="clipboard-key" aria-pressed={panel==='clipboard'} title="Raise or lower the clipboard (C)" onClick={raiseClipboard}><span aria-hidden="true">▤</span><span>CLIPBOARD<small>{panel==='clipboard'?'Open':'Closed'}</small></span></button>}
     {playing&&s.focus&&<InspectionFocus s={s} act={action} close={close} cabinet={cabinet}/>}
@@ -271,7 +275,7 @@ function App() {
       <div className="buttons"><Action kind="danger" onClick={()=>action(()=>{reset(s);warmMusic(false);setToast('');resumePanel.current=null;})}>Restart from arrival</Action><Action onClick={close}>Keep current shift</Action></div>
     </Sheet>}
     {panel==='cabinet'&&<Cabinet s={s} act={action} close={close} inspect={id=>action(()=>interact(s,id))} tag={()=>action(()=>interact(s,'tag'))}/>}
-    {panel==='clipboard'&&<Clipboard s={s} act={action} close={close} paper={paper}/>}
+    {s.started&&s.safety.clipboard&&<Clipboard s={s} act={action} close={close} paper={paper}/>}
     {panel==='mail'&&<Workstation s={s} act={action} close={close} monitor={monitor} clipboard={raiseClipboard}/>}
     {panel==='ending'&&<Ending explore={close} open={tab=>portfolio(tab,'ending')}/>}
     {panel==='portfolio'&&<div className="terminal-layer"><Portfolio tab={s.portfolioTab} change={tab=>action(()=>{s.portfolioTab=tab;})} close={close}/></div>}

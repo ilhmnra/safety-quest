@@ -13,7 +13,7 @@ export function Clipboard({s,act,close,paper}:Props&{paper:RefObject<HTMLDivElem
   const page=s.pressPage;
   const ready=!!s.safety.mailDisposition && !s.safety.reported;
   const turn=(next:Session['pressPage'])=>act(()=>{s.pressPage=next;play('paper',s.settings.sound);});
-  return <div className="clipboard-layer"><div className="clipboard-surface" ref={paper}>
+  return <div className="clipboard-layer" aria-hidden={s.panel!=='clipboard'}><div className="clipboard-surface" ref={paper}>
     <section className="clipboard" role="dialog" aria-label="Inspection clipboard">
       <header>
         <div><div className="form-kicker">THE TRAINING WORKS · FORM SQ-02</div><h2>Safety inspection</h2></div>

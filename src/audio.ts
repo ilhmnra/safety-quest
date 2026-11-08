@@ -1,8 +1,9 @@
 type Effect='horn'|'mail'|'door'|'switch'|'cycle'|'warning'|'strain'|'impact'|'ui'|'paper'|'step';
 type Sample='horn'|'mail';
 
-const assets={horn:'truck-air-horn.mp3',mail:'youve-got-mail.wav'} as const;
+const assets={horn:'truck-air-horn.wav',mail:'youve-got-mail.wav'} as const;
 const assetURL=(name:Sample)=>new URL(import.meta.env.BASE_URL+assets[name],document.baseURI).href;
+const hornGain=.68;
 const buffers=new Map<Sample,AudioBuffer>();
 const media=new Map<Sample,HTMLAudioElement>();
 let context: AudioContext | undefined;
@@ -11,6 +12,7 @@ let music: GainNode | undefined;
 let ambience: {out:GainNode; frequency:OscillatorNode; trucks:{gain:GainNode; pitch:OscillatorNode; pan:StereoPannerNode|null}[]} | undefined;
 let noise: AudioBuffer | undefined;
 let enabled=true, volume=.85, attempted=false, loading=false;
+let hornMediaPrimed=false, hornMediaUsed=false;
 let pending: Effect|null=null;
 const listeners=new Set<()=>void>();
 
@@ -46,7 +48,7 @@ export function setAudioLevel(sound:boolean,level:number) {
   volume=Number.isFinite(level)?Math.max(0,Math.min(1,level)):.85;
   if(context&&master) master.gain.setTargetAtTime(enabled?volume:0,context.currentTime,.02);
   for(const [name,el] of media) {
-    el.volume=enabled?volume*(name==='horn'?.38:.76):0;
+    el.volume=enabled?volume*(name==='horn'?hornGain:.76):0;
     if(!enabled) el.pause();
   }
   if(!enabled) {
@@ -58,6 +60,7 @@ export function setAudioLevel(sound:boolean,level:number) {
 export function unlock() {
   if(!enabled) return;
   try {
+    primeHornMedia();
     if(!context) {
       const Audio=window.AudioContext??(window as Window & {webkitAudioContext?:typeof AudioContext}).webkitAudioContext;
       if(!Audio) { attempted=true; update(); return; }
@@ -83,12 +86,35 @@ export function unlock() {
   } catch { attempted=true; update(); }
 }
 
+function sampleElement(name:Sample) {
+  const cached=media.get(name);
+  if(cached) return cached;
+  const element=new Audio(assetURL(name));
+  element.preload='auto';
+  media.set(name,element);
+  return element;
+}
+
+function primeHornMedia() {
+  if(hornMediaPrimed || hornMediaUsed || typeof Audio==='undefined' || navigator.userActivation?.isActive===false) return;
+  hornMediaPrimed=true;
+  const element=sampleElement('horn');
+  element.muted=true;
+  void element.play().then(()=>{
+    if(hornMediaUsed) return;
+    element.pause();
+    element.currentTime=0;
+    element.muted=false;
+  }).catch(()=>{if(!hornMediaUsed) hornMediaPrimed=false;});
+}
+
 function fallbackSample(name:Sample) {
   if(typeof Audio==='undefined') return;
   try {
-    const element=media.get(name)??new Audio(assetURL(name));
-    media.set(name,element);
-    element.volume=volume*(name==='horn'?.38:.76);
+    const element=sampleElement(name);
+    if(name==='horn') hornMediaUsed=true;
+    element.muted=false;
+    element.volume=volume*(name==='horn'?hornGain:.76);
     element.currentTime=0;
     void element.play().then(()=>{if(pending===name) pending=null;}).catch(()=>{
       if(name==='mail' && typeof speechSynthesis!=='undefined' && enabled) {
@@ -102,28 +128,17 @@ function fallbackSample(name:Sample) {
 
 function playSample(name:Sample,side:number) {
   const buffer=buffers.get(name);
-  if(!context||!master||!buffer) return false;
-  const start=context.currentTime, source=context.createBufferSource(), gain=context.createGain();
+  if(!context||!master||!buffer||context.state!=='running') return false;
+  const source=context.createBufferSource(), gain=context.createGain();
   source.buffer=buffer;
   source.connect(gain);
   if(typeof context.createStereoPanner==='function') {
     const pan=context.createStereoPanner();
-    pan.pan.value=Math.max(-1,Math.min(1,side))*.8;
+    pan.pan.value=Math.max(-1,Math.min(1,side))*.62;
     gain.connect(pan).connect(master);
   } else gain.connect(master);
-  if(name==='horn') {
-    const data=buffer.getChannelData(0);
-    const initial=data.findIndex(x=>Math.abs(x)>.075);
-    const offset=Math.max(0,initial/buffer.sampleRate-.022);
-    const length=Math.min(1.75,buffer.duration-offset);
-    gain.gain.setValueAtTime(.44,start);
-    gain.gain.linearRampToValueAtTime(.44,start+Math.max(.03,length-.14));
-    gain.gain.linearRampToValueAtTime(0,start+length);
-    source.start(start,offset,length);
-  } else {
-    gain.gain.value=.83;
-    source.start();
-  }
+  gain.gain.value=name==='horn'?hornGain:.83;
+  source.start();
   return true;
 }
 

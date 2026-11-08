@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { after, test } from 'node:test';
 import { createServer } from 'vite';
 
@@ -11,6 +12,16 @@ const traffic=await vite.ssrLoadModule('/src/traffic.ts');
 const cinema=await vite.ssrLoadModule('/src/cinematics.ts');
 
 const idle=new Set();
+
+test('the bundled air horn has a strong signal before the camera reaction',()=>{
+  const clip=readFileSync(new URL('../public/truck-air-horn.wav',import.meta.url));
+  assert.equal(clip.toString('ascii',0,4),'RIFF');
+  assert.equal(clip.readUInt16LE(22),1);
+  const samples=Math.floor(clip.readUInt32LE(24)*.15);
+  let energy=0;
+  for(let i=0;i<samples;i++) energy+=(clip.readInt16LE(44+i*2)/32768)**2;
+  assert.ok(Math.sqrt(energy/samples)>.25);
+});
 function tickFor(s,seconds) {
   for(let t=0;t<seconds;t+=.02) engine.tick(s,.02,idle);
 }
@@ -93,18 +104,13 @@ test('gaze uses rendered yaw, expires, and cues the unchecked side before camera
   assert.equal(state.observed(expired,'left'),false);
 });
 
-test('two looks release the crossing only after both trucks pass',()=>{
+test('two looks clear an empty crossing immediately without spawning trucks',()=>{
   const s=session();
+  s.traffic=[-18,18];
   assert.equal(engine.targetAvailable(s,'door'),false);
   look(s,'left');look(s,'right');
-  assert.ok(s.passage);
-  assert.equal(s.roadClear,false);
-  engine.navigate(s,'arrival');
-  tickFor(s,.55);
-  assert.ok(s.pos[1]>=map.ROAD.near);
-  assert.equal(s.film,null);
-  for(let t=0;t<20&&!s.roadClear;t+=.02) engine.tick(s,.02,idle);
   assert.ok(s.roadClear);
+  assert.ok(s.traffic[0]<-18&&s.traffic[1]>18);
   engine.navigate(s,'arrival');
   tickFor(s,3.8);
   assert.ok(s.safety.crossed);
@@ -112,13 +118,37 @@ test('two looks release the crossing only after both trucks pass',()=>{
   assert.equal(s.film,null);
 });
 
+test('the warning tracks actual approaching trucks and mirrors on the return curb',()=>{
+  for(const [from,side] of [[[0,16.45],'right'],[[0,6.36],'left']]) {
+    const s=session(from);
+    s.traffic=[27,20];
+    look(s,'left');look(s,'right');
+    assert.equal(s.roadClear,false);
+    assert.equal(s.trafficSide,side);
+    engine.turnHead(s,'center');
+    s.time+=12;
+    assert.ok(state.observed(s,'left')&&state.observed(s,'right'));
+    for(let t=0;t<4&&!s.roadClear;t+=.02) engine.tick(s,.02,idle);
+    assert.equal(s.roadClear,true);
+    assert.equal(s.trafficSide,null);
+    assert.ok(s.traffic[0]<-map.ROAD.width);
+    s.traffic=[-20,-22];
+    tickFor(s,.02);
+    assert.equal(s.roadClear,false);
+    assert.notEqual(s.trafficSide,side);
+    engine.navigate(s,from[1]>map.ROAD.near?[0,5.75]:[0,16.62]);
+    tickFor(s,.7);
+    assert.equal(s.film?.kind,'near');
+    assert.equal(s.film.side,-1);
+  }
+});
+
 test('a clear road survives centering, aligning inside the curb area and waiting mid-crossing in either direction',()=>{
   for(const [from,to] of [[[2.12,16.62],[.35,5.75]],[[2.12,6.22],[.35,16.62]]]) {
     const s=session(from);
+    s.traffic=[-18,18];
     look(s,'left');look(s,'right');
     engine.turnHead(s,'center');
-    for(let t=0;t<20&&!s.roadClear;t+=.02) engine.tick(s,.02,idle);
-    tickFor(s,12);
     assert.equal(s.roadClear,true);
     assert.ok(state.observed(s,'left')&&state.observed(s,'right'));
     engine.navigate(s,to);
@@ -126,8 +156,8 @@ test('a clear road survives centering, aligning inside the curb area and waiting
     assert.ok(map.onRoad(s.pos)&&map.inCrossing(s.pos));
     const onward=s.nav;
     s.nav=null;
-    s.clearUntil=s.time+.1;
-    tickFor(s,2);
+    s.traffic=[-25,25];
+    tickFor(s,.75);
     assert.equal(s.roadClear,true);
     s.nav=onward;
     tickFor(s,5);
@@ -137,22 +167,32 @@ test('a clear road survives centering, aligning inside the curb area and waiting
   }
 });
 
-test('expired or abandoned curb checks are cleared together',()=>{
-  for(const abandoned of [false,true]) {
-    const s=session();
-    look(s,'left');look(s,'right');
-    if(abandoned) s.pos=[4,18];
-    else {
-      for(let t=0;t<20&&!s.roadClear;t+=.02) engine.tick(s,.02,idle);
-      assert.equal(s.roadClear,true);
-      s.clearUntil=s.time;
-    }
-    tickFor(s,.2);
-    assert.equal(s.roadClear,false);
-    assert.equal(s.passage,null);
-    assert.equal(state.observed(s,'left'),false);
-    assert.equal(state.observed(s,'right'),false);
-  }
+test('leaving the curb clears both observations and the traffic warning',()=>{
+  const s=session();
+  s.traffic=[27,20];
+  look(s,'left');look(s,'right');
+  assert.ok(s.gaze.checked&&s.trafficSide);
+  s.pos=[4,18];
+  tickFor(s,.2);
+  assert.equal(s.roadClear,false);
+  assert.equal(s.trafficSide,null);
+  assert.equal(state.observed(s,'left'),false);
+  assert.equal(state.observed(s,'right'),false);
+});
+
+test('a curb marker tap stops safely if a real truck closes the gap before entry',()=>{
+  const s=session();
+  s.traffic=[-18,18];
+  look(s,'left');look(s,'right');
+  engine.openNearby(s,'arrival');
+  assert.equal(s.nav.target,'arrival');
+  s.traffic=[24,18];
+  tickFor(s,1);
+  assert.ok(s.pos[1]>=map.ROAD.near);
+  assert.equal(s.nav,null);
+  assert.equal(s.film,null);
+  assert.equal(s.trafficSide,'right');
+  assert.equal(s.gaze.checked,true);
 });
 
 test('the curb prompt follows the road-facing side after arriving',()=>{

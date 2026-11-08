@@ -4,7 +4,7 @@ import { Html } from '@react-three/drei';
 import * as T from 'three';
 import { architecture, officeArchitecture, press, truck, person, skin, uniform, type Box, ink, steel, amber, ochre, lamp, alert, tealLamp, cream, slate } from './models';
 import { distance, gear, isGear, machinePart, onRoad, positions, PREP_TABLE, PRESS_Z, ROAD, pressX, props, route, walls, type Gear, type Point, type Press, type Target } from './map';
-import { hasMail, objective, observed, usingCrossing, type Session } from './state';
+import { hasMail, nearCrossing, objective, observed, usingCrossing, type Session } from './state';
 import { filmStage, OFFICE_SHIFT, REACH_CUT, REACH_JOLT, ROAD_REACTION_DELAY } from './cinematics';
 import { encounterTruck, fromSouth, truckMotion } from './traffic';
 import { audioStatus, play, setAudioLevel, unlock, updateAmbience } from './audio';
@@ -401,12 +401,21 @@ const targetList=Object.entries(positions) as [Target,(typeof positions)[Target]
 const PAPER_WIDTH=.437, PAPER_HEIGHT=.525, PAPER_Y=-.014, PAPER_Z=.035;
 const heldBoard:Box[]=[
   [0,0,0,.47,.59,.042,'#856a52'],
-  [0,PAPER_Y,.023,PAPER_WIDTH,PAPER_HEIGHT,.016,'#e1d5b3'],
+  [0,PAPER_Y,.023,PAPER_WIDTH,PAPER_HEIGHT,.016,'#d7c7a2'],
   [0,.273,.038,.184,.06,.046,steel],
   [0,.293,.055,.116,.016,.028,cream],
   [.18,-.266,-.011,.105,.122,.072,'#c3997b'],
 ];
 const DOT_CAPACITY=100;
+const guideSurfaces=architecture.filter(([,y,,,height,,,turn,tilt])=>!turn&&!tilt&&y+height/2<=.21&&y+height/2>=-.07);
+
+function guideHeight(x:number,z:number) {
+  let height=-.06;
+  for(const [cx,y,cz,width,depthY,depth] of guideSurfaces) {
+    if(Math.abs(cx-x)<=width/2&&Math.abs(cz-z)<=depth/2) height=Math.max(height,y+depthY/2);
+  }
+  return height+.005;
+}
 
 function placeSurface(el:HTMLDivElement,a:T.Vector3,b:T.Vector3,width:number,height:number,interactive:boolean) {
   el.style.left=((a.x+1)*width*.5)+'px';
@@ -416,16 +425,16 @@ function placeSurface(el:HTMLDivElement,a:T.Vector3,b:T.Vector3,width:number,hei
   el.dataset.aligned=String(interactive);
 }
 
-function plotGuide(mesh:T.InstancedMesh,start:Point,path:Point[]) {
+function plotGuide(mesh:T.InstancedMesh,start:Point,path:Point[],lead:number) {
   const stamp=new T.Object3D();
   stamp.rotation.x=-Math.PI/2;
-  let origin=start, skip=.72, count=0;
+  let origin=start, skip=lead, count=0;
   for(const point of path) {
     const length=distance(origin,point);
     for(;skip<length && count<DOT_CAPACITY;skip+=.49) {
       const x=T.MathUtils.lerp(origin[0],point[0],skip/length);
       const z=T.MathUtils.lerp(origin[1],point[1],skip/length);
-      stamp.position.set(x,z<0?.147:.083,z);
+      stamp.position.set(x,guideHeight(x,z),z);
       stamp.updateMatrix();
       mesh.setMatrixAt(count++,stamp.matrix);
     }
@@ -438,10 +447,11 @@ function plotGuide(mesh:T.InstancedMesh,start:Point,path:Point[]) {
 
 function guideTarget(s:Session,active:Target):Target {
   if(onRoad(s.pos)&&s.crossingHeading!==null) return s.crossingHeading===0?'arrival':'arrival-south';
-  if(!usingCrossing(s)) return active;
+  if(!nearCrossing(s.pos)) return active;
   const south=fromSouth(s.pos);
   if(s.roadClear) return south?'arrival':'arrival-south';
-  return south?'crossing':'crossing-north';
+  if(south) return 'crossing';
+  return s.gaze.checked||observed(s,'left')||observed(s,'right')?'crossing-north':active;
 }
 function visibleFrom(s:Session,target:Target) {
   if(!targetAvailable(s,target)) return false;
@@ -659,6 +669,10 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper}:Props) {
     lift.current=T.MathUtils.damp(lift.current,s.panel==='clipboard'?1:0,14,dt);
     const clipboard=board.current!;
     clipboard.visible=lift.current>.04;
+    if(paper.current) {
+      paper.current.dataset.visible=String(clipboard.visible);
+      paper.current.inert=s.panel!=='clipboard'||lift.current<=.86;
+    }
     if(clipboard.visible) {
       const [a,b]=screenCorners;
       const pixelWidth=Math.min(size.width-42,440,Math.max(146,(size.height-165)*.8));
@@ -669,7 +683,7 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper}:Props) {
       if(paper.current) {
         a.set(-PAPER_WIDTH/2,PAPER_Y+PAPER_HEIGHT/2,PAPER_Z).applyQuaternion(clipboard.quaternion).add(clipboard.position).project(camera);
         b.set(PAPER_WIDTH/2,PAPER_Y-PAPER_HEIGHT/2,PAPER_Z).applyQuaternion(clipboard.quaternion).add(clipboard.position).project(camera);
-        placeSurface(paper.current,a,b,size.width,size.height,lift.current>.86);
+        placeSurface(paper.current,a,b,size.width,size.height,!paper.current.inert);
       }
     }
     if(highlight.current) {
@@ -701,14 +715,14 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper}:Props) {
     }
     const active=objective(s);
     const guide=trail.current!;
-    guide.visible=s.started&&!s.panel&&!f&&!s.focus&&!s.nav&&!s.safety.reported;
+    guide.visible=s.started&&!s.panel&&!f&&!s.focus&&!s.safety.reported;
     if(guide.visible) {
       const target=guideTarget(s,active);
-      const key=[target,s.roadClear,s.safety.door].join('|');
-      if(!guideCache.current || guideCache.current.key!==key || distance(s.pos,guideCache.current.at)>.62) {
+      const key=[target,s.roadClear,s.safety.door,Math.round(fov)].join('|');
+      if(!guideCache.current || guideCache.current.key!==key || distance(s.pos,guideCache.current.at)>.32) {
         const point=positions[target].point;
         const path=s.roadClear?walkingRoute(s,point):route(s.pos,point,s.safety.door);
-        plotGuide(guide,s.pos,path??[]);
+        plotGuide(guide,s.pos,path??[],1.72/(viewSlope*.44));
         guideCache.current={at:[...s.pos],key};
       }
     }
@@ -733,7 +747,7 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper}:Props) {
       if(s.nav) floor.current.position.set(s.nav.end[0],s.nav.end[1]<0?.131:.074,s.nav.end[1]);
     }
     const fingerprint=[filmStage(s),s.toastId,!!s.nav,s.panel,nearest(s),active,s.pressMode,s.pos[1]<-.55,
-      s.focus?.target,usingCrossing(s),observed(s,'left'),observed(s,'right'),!!s.passage,s.roadClear,s.gazeSelection,!!s.look].join('|');
+      s.focus?.target,usingCrossing(s),observed(s,'left'),observed(s,'right'),s.trafficSide,s.roadClear,s.gazeSelection,!!s.look].join('|');
     if(changed || observedNow || fingerprint!==lastUI.current) {
       lastUI.current=fingerprint;
       update();

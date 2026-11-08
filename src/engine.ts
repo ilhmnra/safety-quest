@@ -1,8 +1,8 @@
 import { MathUtils } from 'three';
 import { play, warmMusic } from './audio';
 import { canContinue, filmStage, REACH_CUT, REACH_JOLT } from './cinematics';
-import { advanceTraffic, clearanceExpired, dangerFilm, fromSouth, roadOccupied, startPassage } from './traffic';
-import { DESK, distance, gear, inCrossing, isGear, machinePart, onRoad, positions, PRESS, ROAD, route, solid, START, type Gear, type Part, type Point, type Press, type Target } from './map';
+import { advanceTraffic, crossingThreat, dangerFilm, fromSouth, roadOccupied } from './traffic';
+import { DESK, distance, gear, inCrossing, isGear, machinePart, onRoad, positions, PRESS, ROAD, route, solid, START, WALK_SPEED, type Gear, type Part, type Point, type Press, type Target } from './map';
 import { equipped, hasMail, nearCrossing, observed, recordIssues, recordName, safeToStart, save, type Inspection, type PreparationCheck, type Session } from './state';
 
 const ROAD_EDGE_BUFFER=.02;
@@ -14,7 +14,22 @@ export function say(s:Session, message:string) {
 export const turnTo=(from:Point,to:Point)=>Math.atan2(from[0]-to[0],from[1]-to[1]);
 export const angleDelta=(from:number,to:number)=>Math.atan2(Math.sin(to-from),Math.cos(to-from));
 const sideYaw=(s:Session,side:'left'|'center'|'right')=>(fromSouth(s.pos)?0:Math.PI)+(side==='center'?0:side==='left'?1:-1)*1.38;
-const newGaze=()=>({left:-Infinity,right:-Infinity,side:null,dwell:0,curb:null} as const);
+const newGaze=()=>({left:-Infinity,right:-Infinity,side:null,dwell:0,curb:null,checked:false} as const);
+
+function refreshCrossing(s:Session) {
+  if(s.crossingHeading!==null) return;
+  const side=s.gaze.checked?crossingThreat(s):null;
+  s.roadClear=s.gaze.checked&&!side;
+  s.trafficSide=side;
+}
+
+function resetCrossing(s:Session) {
+  s.roadClear=false;
+  s.trafficSide=null;
+  s.crossingHeading=null;
+  s.gaze=newGaze();
+  s.gazeSelection=null;
+}
 
 export function turnHead(s:Session,side:'left'|'center'|'right') {
   s.nav=null;
@@ -24,7 +39,7 @@ export function turnHead(s:Session,side:'left'|'center'|'right') {
 }
 
 export function observeView(s:Session,yaw:number,pitch:number,dt:number) {
-  if(s.panel || s.film || !s.started || !nearCrossing(s.pos) || s.passage || s.roadClear) return false;
+  if(s.panel || s.film || !s.started || !nearCrossing(s.pos) || s.gaze.checked) return false;
   const curb=fromSouth(s.pos)?'south':'north';
   if(s.gaze.curb!==curb) s.gaze={...newGaze(),curb};
   const side=Math.abs(pitch)>.64 ? null : (['left','right'] as const).find(d=>Math.abs(angleDelta(yaw,sideYaw(s,d)))<.57) ?? null;
@@ -37,13 +52,14 @@ export function observeView(s:Session,yaw:number,pitch:number,dt:number) {
   if(s.gaze.dwell<.16) return false;
   s.gaze[side]=s.time;
   if(!observed(s,'left') || !observed(s,'right')) return false;
-  startPassage(s);
+  s.gaze.checked=true;
+  refreshCrossing(s);
   return true;
 }
 
 export function targetAvailable(s:Session,target:Target) {
-  if(target==='crossing') return s.pos[1]>ROAD.near && !s.roadClear && !s.passage;
-  if(target==='crossing-north') return s.pos[1]>0 && s.pos[1]<ROAD.far && !s.roadClear && !s.passage;
+  if(target==='crossing') return s.pos[1]>ROAD.near && !s.gaze.checked;
+  if(target==='crossing-north') return s.pos[1]>0 && s.pos[1]<ROAD.far && !s.gaze.checked;
   if(target==='arrival') return s.roadClear && (s.crossingHeading===0 || s.crossingHeading===null && fromSouth(s.pos));
   if(target==='arrival-south') return s.roadClear && (s.crossingHeading===Math.PI || s.crossingHeading===null && !fromSouth(s.pos));
   if(target==='door') return s.pos[1]>-.55 && s.pos[1]<ROAD.far && !s.safety.door;
@@ -218,11 +234,7 @@ export function endFilm(s:Session) {
   s.pitch=-.025;
   if(film.kind==='near') {
     s.pos=[...film.restart];
-    s.roadClear=false;
-    s.crossingHeading=null;
-    s.passage=null;
-    s.gaze=newGaze();
-    s.gazeSelection=null;
+    resetCrossing(s);
     if(film.curb===ROAD.far) s.yaw=Math.PI;
   } else if(film.kind==='incident') {
     s.pos=[...DESK];
@@ -402,11 +414,8 @@ function roadStep(s:Session,next:Point) {
   if(!onRoad(next)) return 'go';
   if(s.roadClear && onRoad(s.pos) && s.crossingHeading!==null) return roadOccupied(s,next)?'wait':'go';
   const zebra=inCrossing(next);
-  if(zebra && s.passage && !s.roadClear) {
-    if(s.nav) {
-      s.nav=null;
-      say(s,'Wait behind the curb until both trucks pass.');
-    }
+  if(zebra&&s.trafficSide&&(s.nav?.target==='arrival'||s.nav?.target==='arrival-south')) {
+    s.nav=null;
     return 'wait';
   }
   if(!zebra || !s.roadClear) {
@@ -414,8 +423,7 @@ function roadStep(s:Session,next:Point) {
     s.nav=null;
     s.look=null;
     s.focus=null;
-    s.passage=null;
-    s.roadClear=false;
+    resetCrossing(s);
     return 'film';
   }
   return roadOccupied(s,next)?'wait':'go';
@@ -436,10 +444,7 @@ function move(s:Session,next:Point) {
       save(s);
       say(s,'The training center is just ahead.');
     }
-    s.roadClear=false;
-    s.gaze=newGaze();
-    s.gazeSelection=null;
-    s.crossingHeading=null;
+    resetCrossing(s);
   }
   return false;
 }
@@ -452,7 +457,7 @@ export function tick(s:Session,dt:number,keys:Set<string>,timelineDt=dt):boolean
   if(s.panel==='ending') return false;
   const film=s.film;
   const stage=filmStage(s);
-  let update=stage!=='near-black' && advanceTraffic(s,timelineDt);
+  if(stage!=='near-black') advanceTraffic(s,timelineDt);
   if(film) {
     const prev=film.time;
     film.time+=timelineDt;
@@ -465,14 +470,11 @@ export function tick(s:Session,dt:number,keys:Set<string>,timelineDt=dt):boolean
     if(film.kind==='failure' && film.reason==='reach' && prev<REACH_JOLT && film.time>=REACH_JOLT) {
       play('impact',s.settings.sound);
     }
-    return update || stage!==filmStage(s);
+    return stage!==filmStage(s);
   }
-  if(!onRoad(s.pos) && s.gaze.curb && (!nearCrossing(s.pos) || clearanceExpired(s))) {
-    s.roadClear=false;
-    s.passage=null;
-    s.gaze=newGaze();
-    s.gazeSelection=null;
-  }
+  if(!onRoad(s.pos) && s.gaze.curb && !nearCrossing(s.pos)) resetCrossing(s);
+  refreshCrossing(s);
+  let update=false;
   if(!s.stoppedA) s.faultTime+=dt;
   if(s.pressMode==='cycling') {
     s.pressTime+=dt;
@@ -514,11 +516,11 @@ export function tick(s:Session,dt:number,keys:Set<string>,timelineDt=dt):boolean
   const vz=Number(keys.has('s'))-Number(keys.has('w'));
   let next:Point|null=null;
   if(vx || vz) {
-    s.look=null;
+    const preserveGaze=nearCrossing(s.pos) && (observed(s,'left') || observed(s,'right'));
+    if(s.gazeSelection!=='center' || !preserveGaze&&s.crossingHeading===null) s.look=null;
     s.focus=null;
     s.nav=null;
-    const speed=dt*3.3/Math.hypot(vx,vz);
-    const preserveGaze=nearCrossing(s.pos) && (observed(s,'left') || observed(s,'right'));
+    const speed=dt*WALK_SPEED/Math.hypot(vx,vz);
     const yaw=s.crossingHeading??(preserveGaze?(fromSouth(s.pos)?0:Math.PI):s.yaw);
     next=[s.pos[0]+(Math.cos(yaw)*vx+Math.sin(yaw)*vz)*speed,s.pos[1]+(-Math.sin(yaw)*vx+Math.cos(yaw)*vz)*speed];
   } else if(s.nav) {
