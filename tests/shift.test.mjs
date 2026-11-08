@@ -95,6 +95,7 @@ test('gaze uses rendered yaw, expires, and cues the unchecked side before camera
 
 test('two looks release the crossing only after both trucks pass',()=>{
   const s=session();
+  assert.equal(engine.targetAvailable(s,'door'),false);
   look(s,'left');look(s,'right');
   assert.ok(s.passage);
   assert.equal(s.roadClear,false);
@@ -107,6 +108,7 @@ test('two looks release the crossing only after both trucks pass',()=>{
   engine.navigate(s,'arrival');
   tickFor(s,3.8);
   assert.ok(s.safety.crossed);
+  assert.equal(engine.targetAvailable(s,'door'),true);
   assert.equal(s.film,null);
 });
 

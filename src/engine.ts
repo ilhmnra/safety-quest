@@ -38,7 +38,6 @@ export function observeView(s:Session,yaw:number,pitch:number,dt:number) {
   s.gaze[side]=s.time;
   if(!observed(s,'left') || !observed(s,'right')) return false;
   startPassage(s);
-  say(s,'Traffic approaching. Wait at the curb.');
   return true;
 }
 
@@ -47,7 +46,7 @@ export function targetAvailable(s:Session,target:Target) {
   if(target==='crossing-north') return s.pos[1]>0 && s.pos[1]<ROAD.far && !s.roadClear && !s.passage;
   if(target==='arrival') return s.roadClear && (s.crossingHeading===0 || s.crossingHeading===null && fromSouth(s.pos));
   if(target==='arrival-south') return s.roadClear && (s.crossingHeading===Math.PI || s.crossingHeading===null && !fromSouth(s.pos));
-  if(target==='door') return s.pos[1]>-.55 && !s.safety.door;
+  if(target==='door') return s.pos[1]>-.55 && s.pos[1]<ROAD.far && !s.safety.door;
   if(s.pos[1]>-.65) return false;
   if(target==='clipboard') return !s.safety.clipboard;
   if(target==='tag') return !s.safety.tagHeld && !s.safety.tagged;
@@ -71,7 +70,6 @@ export function interact(s:Session,target:Target) {
   s.focus=null;
   if(target==='crossing'||target==='crossing-north') {
     turnHead(s,'center');
-    say(s,'Look left and right from the curb.');
   } else if(target==='arrival'||target==='arrival-south') {
     say(s,target==='arrival'?'Follow the entrance sign.':'You are back at the visitor entrance.');
   } else if(target==='door') {
@@ -455,7 +453,6 @@ export function tick(s:Session,dt:number,keys:Set<string>,timelineDt=dt):boolean
   const film=s.film;
   const stage=filmStage(s);
   let update=stage!=='near-black' && advanceTraffic(s,timelineDt);
-  if(update) say(s,'Road clear. Cross now.');
   if(film) {
     const prev=film.time;
     film.time+=timelineDt;
