@@ -14,7 +14,7 @@ export const gear = {
   sneakers: {name:'Canvas shoes', slot:'feet', sound:false, anchor:[7.86,1.17,-4.36], detail:'Soft canvas shoes lack reinforced toes. The training bay requires safety footwear.'},
 } satisfies Record<string,{name:string;slot:'eyes'|'ears'|'feet';sound:boolean;anchor:Vec;detail:string}>;
 export type Gear = keyof typeof gear;
-export type Target = 'crossing' | 'arrival' | 'door' | 'ppe' | 'clipboard' | 'tag' | 'mail' | Gear | `${Press}-${Part}`;
+export type Target = 'crossing' | 'crossing-north' | 'arrival' | 'arrival-south' | 'door' | 'ppe' | 'clipboard' | 'tag' | 'mail' | Gear | `${Press}-${Part}`;
 
 export const START: Point = [0, 22.7];
 export const PRESS: Point = [-4.8, -7.2];
@@ -25,10 +25,12 @@ export const pressX: Record<Press,number> = {a:-7.65,b:-1.95};
 type Destination = { point:Point; anchor:Vec; name:string; reach:number; hit?:Vec };
 export const positions = {
   crossing: {point:[0,16.45],anchor:[0,1.02,15.8],name:'Zebra crossing',reach:.45,hit:[3.5,1.5,.4]},
+  'crossing-north': {point:[0,6.36],anchor:[0,1.02,7.07],name:'Return crossing',reach:.45,hit:[3.5,1.5,.4]},
+  'arrival-south': {point:[0,16.62],anchor:[0,1.25,16.25],name:'Far curb toward arrival',reach:.5,hit:[2.8,1.5,.4]},
   arrival: {point:[0,5.75],anchor:[0,1.25,6.3],name:'Cross the road',reach:.5,hit:[2.8,1.5,.4]},
   door: {point:[0,1.45],anchor:[0,2.05,.24],name:'Training center entrance',reach:1.5,hit:[3.5,2.85,.8]},
   ppe: {point:[6.9,-.70],anchor:[6.9,2.47,-4.58],name:'PPE station',reach:.42,hit:[2.8,.38,.25]},
-  clipboard: {point:[4.52,-5.12],anchor:[4.52,1.26,-6.06],name:'Take clipboard',reach:.65,hit:[.5,.55,.35]},
+  clipboard: {point:[2.15,-1.94],anchor:[2.15,1.18,-2.87],name:'Take clipboard',reach:.65,hit:[.5,.55,.35]},
   tag: {point:[8.78,-3.27],anchor:[8.78,1.74,-4.41],name:'Take out-of-service tag',reach:.75,hit:[.46,.49,.3]},
   mail: {point:DESK,anchor:[7.6,2.1,-11.15],name:'Workstation',reach:1.45,hit:[2.7,1.95,.83]},
 } as Record<Target,Destination>;
@@ -78,14 +80,14 @@ export const walls: Rect[] = [
 
 export const props: Rect[] = [
   [-9.02,-6.28,-13.45,-10.98], [-3.32,-.58,-13.45,-10.98],
-  [5.35,8.45,-5.75,-4.66], [.58,4.12,-7.96,-7.58],
+  [5.35,8.45,-5.75,-4.66], [1.61,2.69,-3.38,-2.66],
   [5.84,9.32,-12.15,-10.68], [10.05,11.52,-16.9,-13.55],
   [-5.9,1.05,-18.7,-17.65], [8.96,11.1,-18.65,-17.68],
-  [4.05,4.99,-6.58,-5.86],
   [-20,-15.3,1.75,4.55], [14.15,18.35,2.35,5.45], [18.85,22.6,1.6,4.6],
   [-7.4,-3.8,19.6,21.75], [3.9,7.5,19.65,21.75],
   [-12,-9.2,17.15,19.6], [6.4,9.8,2.15,3.3], [-9.8,-6.4,2.15,3.3],
-  [-24,-3.2,24.9,25.25], [3.2,24,24.9,25.25],
+  [-24.5,24.5,24.85,25.4],
+  [-24.2,-23.15,-19.5,25.4], [23.15,24.2,-19.5,25.4],
   [-22,-21.55,-2,7.15], [22,22.45,-2,7.15],
   [-5.12,-4.76,16.64,17.04], [4.76,5.12,16.64,17.04],
   [-5.12,-4.76,6.25,6.65], [4.76,5.12,6.25,6.65],

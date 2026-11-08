@@ -3,28 +3,29 @@ import { createRoot } from 'react-dom/client';
 import World, { type Markers } from './World';
 import Portfolio from './Portfolio';
 import { Action, Icon, Sheet } from './components';
-import { Clipboard, Ending, FilmOverlay, InspectionFocus, Workstation } from './ShiftPanels';
-import { setAudioLevel, unlock, warmMusic } from './audio';
+import { Cabinet, Clipboard, Ending, FilmOverlay, InspectionFocus } from './ShiftPanels';
+import { Workstation } from './Workstation';
+import { audioStatus, onAudioStatus, play, setAudioLevel, unlock, warmMusic } from './audio';
 import { gear, isGear, machinePart, positions, type Target } from './map';
 import { equipped, nearCrossing, objective, observed, reset, save, startSession, type Panel, type PortfolioTab, type Session } from './state';
-import { endFilm, gearAction, nearest, openNearby, say, turnHead } from './engine';
+import { continueFilm, gearAction, nearest, openNearby, say, skipFilm, turnHead } from './engine';
 import './style.css';
 
 function label(target:Target) {
-  if(target==='arrival') return 'Opposite curb';
+  if(target==='arrival'||target==='arrival-south') return 'Opposite curb';
   if(target==='door') return 'Training entrance';
-  if(target==='ppe') return 'Preparation station';
+  if(target==='ppe') return 'PPE cabinet';
   return positions[target].name;
 }
 
 function direction(s:Session) {
   const active=objective(s);
-  if(s.safety.reported) return 'The training works are open to explore.';
   if(nearCrossing(s.pos) && s.passage && !s.roadClear) return 'Wait at the curb for both trucks.';
   if(active==='crossing') return 'Approach the zebra crossing.';
-  if(active==='arrival') return s.roadClear?'Road clear. Walk to the opposite curb.':'Look down both lanes before walking across.';
+  if(active==='arrival'||active==='arrival-south') return s.roadClear?'Road clear. Walk to the opposite curb.':'Look down both lanes before walking across.';
   if(active==='door') return 'Follow the entrance sign.';
   if(active==='ppe') return 'Find the PPE cabinet inside.';
+  if(s.safety.reported) return 'The training works are open to explore.';
   if(active==='mail') return s.safety.mailDisposition?'Review your inspection clipboard.':'A message arrived at the workstation.';
   return label(active);
 }
@@ -43,6 +44,14 @@ function App() {
   const [toast,setToast]=useState('');
   const keys=useRef(new Set<string>()).current;
   const markers=useRef<Markers>({});
+  const monitor=useRef<HTMLDivElement>(null);
+  const [compact,setCompact]=useState(()=>window.innerWidth<780 || window.innerHeight<550);
+  useEffect(()=>onAudioStatus(update),[update]);
+  useEffect(()=>{
+    const resize=()=>setCompact(window.innerWidth<780 || window.innerHeight<550);
+    window.addEventListener('resize',resize);
+    return ()=>window.removeEventListener('resize',resize);
+  },[]);
   const resumePanel=useRef<Panel|null>(null);
   const wasLocked=useRef(false);
   const action=useCallback((fn:()=>void)=>{
@@ -54,7 +63,11 @@ function App() {
     update();
   },[s,update]);
   const close=useCallback(()=>action(()=>{
-    if(s.panel==='portfolio') s.panel=s.portfolioBack;
+    if(s.panel==='clipboard') {
+      s.panel=s.clipboardBack;
+      s.clipboardBack=null;
+      play('paper',s.settings.sound);
+    } else if(s.panel==='portfolio') s.panel=s.portfolioBack;
     else if(s.panel==='settings'||s.panel==='restart') s.panel='pause';
     else if(s.panel==='pause') s.panel=resumePanel.current;
     else {
@@ -74,11 +87,17 @@ function App() {
     }
   }),[s,action]);
   const raiseClipboard=useCallback(()=>action(()=>{
-    if(s.panel==='clipboard') {s.panel=null;return;}
-    if(!s.safety.clipboard || s.film || s.panel) return;
+    if(!s.safety.clipboard || s.film || !s.started) return;
+    play('paper',s.settings.sound);
+    if(s.panel==='clipboard') {
+      s.panel=s.clipboardBack;
+      s.clipboardBack=null;
+      return;
+    }
     s.nav=null;
     s.focus=null;
     s.look=null;
+    s.clipboardBack=s.panel;
     s.panel='clipboard';
   }),[action,s]);
   const switchControl=()=>action(()=>{
@@ -105,7 +124,8 @@ function App() {
   useEffect(()=>{
     const down=(e:KeyboardEvent)=>{
       const key=e.key.toLowerCase();
-      if(e.altKey || e.ctrlKey || e.metaKey) return;
+      if(e.altKey || e.ctrlKey || e.metaKey || (e.target instanceof HTMLInputElement && key!=='escape' && key!=='c')) return;
+      if(s.started && s.settings.sound && audioStatus()!=='running') unlock();
       if(['w','a','s','d','q','e','arrowup','arrowdown','arrowleft','arrowright'].includes(key) && !s.panel && !s.film) {
         e.preventDefault();
         keys.add(key);
@@ -113,10 +133,11 @@ function App() {
       if(e.repeat) return;
       if(key==='escape') {
         e.preventDefault();
-        if(s.panel==='clipboard' || s.panel==='mail' || s.panel==='ending' || s.focus) close();
+        if(s.film) return;
+        if(s.panel==='clipboard' || s.panel==='cabinet' || s.panel==='mail' || s.panel==='ending' || s.focus) close();
         else pause();
       }
-      if(key==='c' && s.started && !s.film && (!s.panel||s.panel==='clipboard')) {
+      if(key==='c' && s.started && !s.film) {
         e.preventDefault();
         raiseClipboard();
       }
@@ -151,14 +172,17 @@ function App() {
   const to=(target:Target)=>action(()=>openNearby(s,target));
   const toggleSound=()=>action(()=>{
     s.settings.sound=!s.settings.sound;
-    if(s.settings.sound) unlock();
-    if(s.safety.reported) warmMusic(s.settings.sound);
+    setAudioLevel(s.settings.sound,s.settings.volume);
+    if(s.settings.sound) {unlock();play('ui',true);}
+    if(s.panel==='ending') warmMusic(s.settings.sound);
     save(s);
   });
-  const skip=()=>action(()=>endFilm(s));
+  const skip=()=>action(()=>skipFilm(s));
+  const next=()=>action(()=>continueFilm(s));
+  const cabinet=()=>action(()=>{s.focus=null;s.look=null;s.panel='cabinet';play('ui',s.settings.sound);});
   const keyHint=s.settings.lookKeys==='arrows'?'ARROWS':'Q/E + ↑↓';
   return <main className={'game '+(touch?'touch':'desktop')+(s.settings.reduced?' reduced':'')} aria-label="Safety Quest">
-    <SceneBoundary><World session={s} keys={keys} markers={markers} update={update} touch={touch}/></SceneBoundary>
+    <SceneBoundary><World session={s} keys={keys} markers={markers} update={update} touch={touch} monitor={monitor} compact={compact}/></SceneBoundary>
     <div className={'grade '+(panel==='welcome'?'welcome-grade':'')} aria-hidden="true"/>
     <header className="hud-top">
       <div className="brand"><span className="brand-mark"><Icon name="warning" size={20}/></span><span><b>SAFETY QUEST</b><small>THE TRAINING WORKS</small></span></div>
@@ -166,9 +190,10 @@ function App() {
         {!touch&&(playing||panel==='welcome')&&<button className="control-toggle" aria-label="Switch control mode" onClick={switchControl}>
           <Icon name={s.settings.control==='trackpad'?'finger':'aim'} size={16}/><span>{s.settings.control==='trackpad'?'Trackpad':'Mouse look'}</span>
         </button>}
-        {s.safety.clipboard&&(playing||panel==='clipboard')&&<button className="icon-button" aria-label={panel==='clipboard'?'Put clipboard away':'Raise clipboard'} onClick={raiseClipboard}>▤</button>}
-        <button className="icon-button" aria-label={s.settings.sound?'Mute audio':'Unmute audio'} onClick={toggleSound}><Icon name={s.settings.sound?'speaker':'mute'}/></button>
-        <button className="icon-button" aria-label="Pause menu" onClick={pause}><Icon name="menu"/></button>
+        {s.settings.sound && audioStatus()==='blocked' ?
+          <button className="control-toggle" onClick={()=>action(()=>unlock())}><Icon name="speaker" size={16}/>Enable Sound</button>:
+          <button className="icon-button" aria-pressed={s.settings.sound} aria-label={s.settings.sound?'Mute audio':'Unmute audio'} onClick={toggleSound}><Icon name={s.settings.sound?'speaker':'mute'}/></button>}
+        <button className="icon-button" aria-label="Pause menu" disabled={!!s.film} onClick={pause}><Icon name="menu"/></button>
       </div>
     </header>
     {panel==='welcome'&&<div className="welcome">
@@ -204,27 +229,33 @@ function App() {
     {playing&&<div className="hud-play">
       {!touch&&<div className="reticle" aria-hidden="true"/>}
       {!touch&&near&&!s.focus&&<div className="interact-hint"><kbd>F</kbd> {label(near)}</div>}
-      {atCurb&&!s.roadClear&&<div className="gaze-rail" aria-label="Look along the roadway">
-        {(['left','right'] as const).map(side=><button key={side} aria-label={'Look '+side} aria-pressed={observed(s,side)} onClick={()=>action(()=>turnHead(s,side))}>
-          <span aria-hidden>{side==='left'?'‹':'›'}</span>{side.toUpperCase()}<span className="eye" aria-hidden><svg width="16" height="12" viewBox="0 0 24 16" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M1 8s4-6 11-6 11 6 11 6-4 6-11 6S1 8 1 8Z"/><circle cx="12" cy="8" r="2.5"/></svg></span>
-        </button>)}
+      {atCurb&&<div className="gaze-rail" aria-label="Look along the roadway">
+        {(['left','center','right'] as const).map(side=>{
+          const selected=s.gazeSelection===side, seen=side!=='center'&&observed(s,side), moving=selected&&!!s.look;
+          return <button key={side} aria-label={'Look '+side} aria-pressed={selected} data-observed={seen} onClick={()=>action(()=>turnHead(s,side))}>
+            <span aria-hidden>{side==='left'?'‹':side==='right'?'›':'·'}</span>
+            <span>{side.toUpperCase()}<small>{moving?'Turning':seen?'Checked':selected?'Facing':'Look'}</small></span>
+          </button>;
+        })}
       </div>}
-      {(s.safety.ppe.length>0||s.safety.tagHeld)&&<div className="ppe-chip" aria-label="Equipment carried">
+      {s.pos[1]<-.65&&(s.safety.collectedPpe.length>0||s.safety.tagHeld||s.safety.tagged)&&<button className="ppe-chip equipment-key" aria-label="Return to PPE cabinet" onClick={()=>to('ppe')}>
         {s.safety.ppe.map(id=><span key={id} data-damaged={!gear[id].sound} title={positions[id].name}>{gear[id].slot==='eyes'?'◉':gear[id].slot==='ears'?'Ω':'▰'}</span>)}
         {equipped(s.safety)&&<span>PPE</span>}
         {s.safety.tagHeld&&<span className="held-tag" title="Out-of-service tag carried">TAG</span>}
-      </div>}
+        {!s.safety.ppe.length&&!s.safety.tagHeld&&<span>Equipment</span>}
+      </button>}
       {!s.focus&&<div className="guide">
         {s.nav?<button className="guide-button" onClick={()=>action(()=>{s.nav=null;say(s,'Walk stopped.');})}><span className="guide-dot"/> Stop walking</button>:
           atCurb&&s.passage&&!s.roadClear ? <div className="guide-text"><Icon name="warning" size={16}/> {direction(s)}</div>:
-          !s.safety.reported ? <button className="guide-button" aria-label={'Navigate to '+label(active)} onClick={()=>to(active)}>
-            <Icon name="aim" size={17}/>{atCurb&&active==='arrival'&&!s.roadClear?'Opposite curb':direction(s)}<span aria-hidden>›</span></button>:
+          (!s.safety.reported || atCurb || active==='crossing') ? <button className="guide-button" aria-label={'Navigate to '+label(active)} onClick={()=>to(active)}>
+            <Icon name="aim" size={17}/>{atCurb&&(active==='arrival'||active==='arrival-south')&&!s.roadClear?'Opposite curb':direction(s)}<span aria-hidden>›</span></button>:
           <div className="guide-text"><Icon name="aim" size={16}/>{direction(s)}</div>}
       </div>}
     </div>}
-    {playing&&s.focus&&<InspectionFocus s={s} act={action} close={close}/>}
+    {s.started&&!s.film&&panel!=='ending'&&<button className="clipboard-key" disabled={!s.safety.clipboard} aria-pressed={panel==='clipboard'} title={s.safety.clipboard?'Raise or lower the clipboard (C)':'Collect the clipboard by the entrance'} onClick={raiseClipboard}><span aria-hidden="true">▤</span><span>CLIPBOARD<small>{panel==='clipboard'?'Open':s.safety.clipboard?'Closed':'Collect inside'}</small></span></button>}
+    {playing&&s.focus&&<InspectionFocus s={s} act={action} close={close} cabinet={cabinet}/>}
     {toast&&s.started&&!s.film&&!s.focus&&panel!=='ending'&&<div className="toast" role="status" key={s.toastId}><Icon name={toast.includes('mail')?'mail':'aim'} size={18}/>{toast}</div>}
-    {s.film&&<FilmOverlay s={s} skip={skip}/>}
+    {s.film&&<FilmOverlay s={s} next={next} skip={skip}/>}
     {panel==='pause'&&<Sheet code="VISITOR TERMINAL / PAUSED" title="Safety Quest" close={close} extra="pause-sheet">
       <div className="buttons"><Action kind="primary" onClick={close}>Resume <Icon name="arrow"/></Action></div>
       <div className="pause-links">{(['About Me','CV / Résumé','Projects','Contact'] as PortfolioTab[]).map(tab=><Action key={tab} onClick={()=>portfolio(tab,'pause')}>{tab}</Action>)}</div>
@@ -242,6 +273,7 @@ function App() {
       <div className="settings-row"><span>Audio</span><button className="switch" aria-pressed={s.settings.sound} onClick={toggleSound}>{s.settings.sound?'On':'Off'}</button></div>
       <label className="settings-row">Volume<input aria-label="Volume" type="range" min="0" max="1" step=".05" value={s.settings.volume} onChange={e=>action(()=>{s.settings.volume=Number(e.target.value);save(s);})}/></label>
       <div className="settings-row"><span>Reduced motion</span><button className="switch" aria-pressed={s.settings.reduced} onClick={()=>action(()=>{s.settings.reduced=!s.settings.reduced;save(s);})}>{s.settings.reduced?'On':'Off'}</button></div>
+      <label className="settings-row">Field of view <input aria-label="Field of view" type="range" min="65" max="90" step="1" value={s.settings.fov} onChange={e=>action(()=>{s.settings.fov=Number(e.target.value);save(s);})}/></label>
       <label className="settings-row">Graphics<select value={s.settings.quality} onChange={e=>action(()=>{s.settings.quality=e.target.value as typeof s.settings.quality;save(s);})}><option value="auto">Automatic</option><option value="low">Low</option><option value="high">High</option></select></label>
       {document.fullscreenEnabled&&<Action onClick={()=>{if(document.fullscreenElement)void document.exitFullscreen().catch(()=>{});else void document.documentElement.requestFullscreen().catch(()=>{});}}>Toggle fullscreen</Action>}
       <p className="fine-print">Fictional workplace simulation. Servicing real equipment requires authorized isolation and lockout/tagout.</p>
@@ -250,8 +282,9 @@ function App() {
       <p>Return to the outdoor arrival point and clear this shift’s training record.</p>
       <div className="buttons"><Action kind="danger" onClick={()=>action(()=>{reset(s);warmMusic(false);setToast('');resumePanel.current=null;})}>Restart from arrival</Action><Action onClick={close}>Keep current shift</Action></div>
     </Sheet>}
+    {panel==='cabinet'&&<Cabinet s={s} act={action} close={close} inspect={to} tag={()=>to('tag')}/>}
     {panel==='clipboard'&&<Clipboard s={s} act={action} close={close}/>}
-    {panel==='mail'&&<Workstation s={s} act={action} close={close} portfolio={()=>portfolio('About Me','mail')}/>}
+    {panel==='mail'&&<Workstation s={s} act={action} close={close} monitor={monitor} compact={compact||touch} clipboard={raiseClipboard}/>}
     {panel==='ending'&&<Ending explore={close} open={tab=>portfolio(tab,'ending')}/>}
     {panel==='portfolio'&&<div className="terminal-layer"><Portfolio tab={s.portfolioTab} change={tab=>action(()=>{s.portfolioTab=tab;})} close={close}/></div>}
   </main>;

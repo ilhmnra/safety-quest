@@ -13,11 +13,11 @@ const skills = [
   ['Software and data','C#','ASP.NET MVC','Python','SQL','SQL Server'],
   ['Delivery and quality','Agile development','Functional testing','AI evaluation','Rubric design','RL environment QA'],
 ];
-export default function Portfolio({tab,change,close}:{tab:PortfolioTab;change:(tab:PortfolioTab)=>void;close:()=>void}) {
+export default function Portfolio({tab,change,close,embedded=false}:{tab:PortfolioTab;change:(tab:PortfolioTab)=>void;close:()=>void;embedded?:boolean}) {
   const content=useRef<HTMLElement>(null);
   useEffect(()=>{content.current?.scrollTo(0,0);},[tab]);
-  return <div className="terminal" role="dialog" aria-modal="true" aria-label="Works OS Personnel Directory">
-    <header className="terminal-top"><span className="terminal-dot"/><b>WORKS OS</b><span> / PERSONNEL DIRECTORY</span><button className="icon-button close" aria-label="Close personnel directory" onClick={close}>×</button></header>
+  return <div className={embedded?"terminal embedded-directory":"terminal"} role={embedded?undefined:"dialog"} aria-modal={embedded?undefined:true} aria-label="Works OS Personnel Directory">
+    {!embedded&&<header className="terminal-top"><span className="terminal-dot"/><b>WORKS OS</b><span> / PERSONNEL DIRECTORY</span><button className="icon-button close" aria-label="Close personnel directory" onClick={close}>×</button></header>}
     <div className="terminal-grid">
       <nav aria-label="Portfolio sections" className="terminal-tabs">{tabs.map((t,i)=><button type="button" key={t} aria-pressed={t===tab} onClick={()=>change(t)}><span aria-hidden>{['◉','▤','◇','▦','▧','↗'][i]}</span>{t}</button>)}</nav>
       <section className="terminal-content" ref={content} aria-label={tab}>
@@ -52,6 +52,6 @@ export default function Portfolio({tab,change,close}:{tab:PortfolioTab;change:(t
         </>}
       </section>
     </div>
-    <footer className="terminal-footer"><span className="terminal-dot"/> LOCAL DIRECTORY <span>WORKS / 01</span></footer>
+    {!embedded&&<footer className="terminal-footer"><span className="terminal-dot"/> LOCAL DIRECTORY <span>WORKS / 01</span></footer>}
   </div>;
 }

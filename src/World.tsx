@@ -2,13 +2,16 @@ import { memo, useEffect, useMemo, useRef, type MutableRefObject } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as T from 'three';
-import { architecture, officeArchitecture, press, truck, person, type Box, ink, steel, amber, ochre, lamp, alert, tealLamp, cream, slate } from './models';
-import { distance, gear, isGear, machinePart, positions, PRESS_Z, pressX, props, walls, type Gear, type Point, type Press, type Target } from './map';
-import { filmStage, hasMail, nearCrossing, objective, observed, OFFICE_SHIFT, REACH_CUT, REACT_AT, type Session } from './state';
-import { angleDelta, navigate, nearest, observeView, openNearby, say, targetAvailable, tick, truckMotion, turnTo } from './engine';
+import { architecture, officeArchitecture, press, truck, person, skin, uniform, type Box, ink, steel, amber, ochre, lamp, alert, tealLamp, cream, slate } from './models';
+import { distance, gear, isGear, machinePart, positions, PRESS_Z, ROAD, pressX, props, walls, type Gear, type Point, type Press, type Target } from './map';
+import { hasMail, nearCrossing, objective, observed, type Session } from './state';
+import { canContinue, filmStage, OFFICE_SHIFT, REACH_CUT, REACH_JOLT, ROAD_REACTION_DELAY } from './cinematics';
+import { truckMotion } from './traffic';
+import { audioStatus, play, setAudioLevel, unlock, updateAmbience } from './audio';
+import { angleDelta, navigate, nearest, observeView, openNearby, say, targetAvailable, tick, turnTo } from './engine';
 
 export type Markers = Partial<Record<Target,HTMLButtonElement>>;
-type Props = { session:Session; keys:Set<string>; markers:MutableRefObject<Markers>; update:()=>void; touch:boolean };
+type Props = { session:Session; keys:Set<string>; markers:MutableRefObject<Markers>; update:()=>void; touch:boolean; monitor:MutableRefObject<HTMLDivElement|null>; compact:boolean };
 const cube=new T.BoxGeometry();
 const temp=new T.Object3D();
 const mats=new Map<string,T.Material>();
@@ -41,7 +44,7 @@ const Batch=memo(function Batch({boxes, shadows=true}:{boxes:Box[];shadows?:bool
 });
 const modelA=press(true), modelB=press(false);
 const modelTruckA=truck('#7a8d83'), modelTruckB=truck('#5e7776');
-const ceo=person('#394b51','#d7a67f','#393938'), tech=person('#557b72','#af795b','#383c39',true);
+const manager=person('manager'), engineering=person('engineering'), support=person('support');
 const skyVertex='varying vec3 v; void main(){v=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}';
 const skyFragment=`
 varying vec3 v;
@@ -146,7 +149,9 @@ function TruckRig({s,lane}:{s:Session;lane:0|1}) {
     g.position.set(p.x,-.05,p.z);
     g.rotation.y=lane===0?Math.PI:0;
     for(const wheel of wheels.current) if(wheel) wheel.rotation.z=p.x*p.direction/.357;
-    lights.current!.visible=s.film?.kind==='near' && p.visible;
+    const bright=s.film?.kind==='near' && s.film.side===p.direction;
+    lights.current!.visible=p.visible;
+    lights.current!.scale.setScalar(bright?1:.53);
   });
   return <group ref={rig} visible={false}>
     <Batch boxes={lane===0?modelTruckA:modelTruckB}/>
@@ -235,18 +240,21 @@ function CabinetItem({s,id}:{s:Session;id:Gear}) {
   const [x,y,z]=gear[id].anchor;
   useFrame((_,dt)=>{
     const g=item.current!, held=s.focus?.target===id;
-    g.visible=held||!s.safety.ppe.includes(id);
+    g.visible=!s.safety.ppe.includes(id);
     g.position.y=T.MathUtils.damp(g.position.y,y+(held?.07:0),9,dt);
     g.position.z=T.MathUtils.damp(g.position.z,z+(held?.10:0),9,dt);
     g.rotation.y=T.MathUtils.damp(g.rotation.y,held?.14:0,8,dt);
   });
-  return <group ref={item} position={[x,y,z]}><Batch boxes={equipmentModels[id]} shadows={false}/></group>;
+  return <>
+    <group ref={item} position={[x,y,z]}><Batch boxes={equipmentModels[id]} shadows={false}/></group>
+    {s.safety.ppe.includes(id)&&<Sign position={[x,y,z+.018]} w={.55} h={.13} title="EQUIPPED" sub="SELECT TO REVIEW"/>}
+  </>;
 }
 function Preparation({s}:{s:Session}) {
   return <>
     {(Object.keys(gear) as Gear[]).map(id=><CabinetItem key={id} s={s} id={id}/>)}
     {!s.safety.tagHeld&&!s.safety.tagged&&<TagModel at={[8.78,1.74,-4.41]}/>}
-    {!s.safety.clipboard&&<group position={[4.52,1.14,-6.11]} rotation-x={-1.23}><Batch boxes={boardBoxes}/></group>}
+    {!s.safety.clipboard&&<group position={[2.15,1.14,-3.03]} rotation-x={-1.23}><Batch boxes={boardBoxes}/></group>}
   </>;
 }
 const handBoxes:Box[]=[
@@ -255,20 +263,31 @@ const handBoxes:Box[]=[
   ...Array.from({length:4},(_,i):Box=>[-.005+i*.027,-.121,-.145,.024,.056,.10-(i===0?.021:0),'#d0a386']),
   [.102,-.121,-.074,.037,.060,.071,'#c3997b',0,-.3],
 ];
+const injuryPixels:[number,number,number][]=[[.07,.015,-.15],[.11,-.026,-.18],[-.05,-.02,-.16],[-.02,.025,-.19],[.13,-.015,-.13],[.015,.055,-.17]];
 function HeldProps({s}:{s:Session}) {
   const hand=useRef<T.Group>(null), board=useRef<T.Group>(null);
+  const sparks=useRef<T.Group>(null);
   const offset=useMemo(()=>new T.Vector3(),[]);
   const lift=useRef(0);
   useFrame(({camera},dt)=>{
     const f=s.film, h=hand.current!, b=board.current!;
     h.visible=f?.kind==='failure' && f.reason==='reach' && f.time<REACH_CUT;
     if(h.visible && f) {
-      const reach=T.MathUtils.smoothstep(f.time,.08,.82);
+      const reach=T.MathUtils.smoothstep(f.time,.23,2.65);
+      const trapped=T.MathUtils.smoothstep(f.time,REACH_JOLT,REACH_JOLT+.18);
       const anchor=positions['a-reach'].anchor;
       const depth=Math.max(.28,Math.min(.89,camera.position.distanceTo(offset.set(...anchor))-.32));
-      h.position.copy(offset.set(.19-reach*.115,-.37+reach*.25,-T.MathUtils.lerp(.28,depth,reach)).applyQuaternion(camera.quaternion).add(camera.position));
+      h.position.copy(offset.set(.19-reach*.115,-.37+reach*.25-trapped*.095,-T.MathUtils.lerp(.28,depth,reach)).applyQuaternion(camera.quaternion).add(camera.position));
       h.quaternion.copy(camera.quaternion);
-    }
+      h.scale.set(1,1-trapped*.73,1);
+      const burst=sparks.current!;
+      const splash=f.time-REACH_JOLT;
+      burst.visible=splash>=0 && splash<.34;
+      if(burst.visible) {
+        burst.position.copy(h.position);burst.quaternion.copy(h.quaternion);
+        burst.scale.setScalar(.7+splash*5);
+      }
+    } else if(sparks.current) sparks.current.visible=false;
     lift.current=T.MathUtils.damp(lift.current,s.panel==='clipboard'?1:0,12,dt);
     b.visible=lift.current>.045;
     if(b.visible) {
@@ -279,6 +298,7 @@ function HeldProps({s}:{s:Session}) {
   });
   return <>
     <group ref={hand} visible={false}><Batch boxes={handBoxes} shadows={false}/></group>
+    <group ref={sparks} visible={false}>{injuryPixels.map((bit,i)=><GlowingBox key={i} position={bit} size={[.017,.014,.02]} color={i%2===0?"#b74739":"#8f3631"}/>)}</group>
     <group ref={board} visible={false}><Batch boxes={boardBoxes} shadows={false}/></group>
   </>;
 }
@@ -286,11 +306,20 @@ function HeldProps({s}:{s:Session}) {
 function Machines({s}:{s:Session}) {
   const ram=useRef<Partial<Record<Press,T.Group>>>({});
   const beacon=useRef<T.Mesh>(null);
+  const controls=useRef<Partial<Record<Target,T.Group>>>({});
   useFrame(({clock})=>{
     const t=s.pressTime;
     const stroke=s.pressMode==='cycling' ? Math.sin(Math.PI*T.MathUtils.clamp((t-.37)/2.45,0,1))**2 : 0;
     ram.current.b!.position.y=-stroke*.63;
-    ram.current.a!.position.y=s.stoppedA?0:-(Math.sin(Math.min(1,s.faultTime)*Math.PI)**2)*(.10+.03*Math.sin(s.faultTime*42));
+    const f=s.film;
+    if(f?.kind==='failure'&&f.reason==='reach') {
+      const strike=T.MathUtils.smoothstep(f.time,REACH_JOLT,REACH_JOLT+.19);
+      ram.current.a!.position.y=-.10*Math.sin(Math.min(1,f.time/2.5)*Math.PI)-.61*strike;
+    } else ram.current.a!.position.y=s.stoppedA?0:-(Math.sin(Math.min(1,s.faultTime)*Math.PI)**2)*(.10+.03*Math.sin(s.faultTime*42));
+    for(const [id,button] of Object.entries(controls.current)) {
+      const pressed=s.controlPress?.target===id && s.controlPress.until>s.time;
+      button.position.z=T.MathUtils.lerp(button.position.z,pressed?1.29:1.338,.34);
+    }
     beacon.current!.material=material(s.safety.tagged || (!s.stoppedA && Math.sin(clock.elapsedTime*13)>.1)?alert:'#87724d');
   });
   return <>{(['a','b'] as const).map(id=>{
@@ -301,6 +330,12 @@ function Machines({s}:{s:Session}) {
       <Batch boxes={a?modelA:modelB}/>
       <Sign position={[0,3.117,1.22]} w={1.51} h={.385} title={a?'PRESS A':'PRESS B'} sub={a?'MECHANICAL / 01':'TRAINING / 02'}/>
       <Sign position={[.86,2.235,1.298]} w={.47} h={.19} title={status} sub="SIMULATION"/>
+      {(['start','stop'] as const).map(part=>{
+        const running=a?!s.stoppedA:s.pressMode==='cycling';
+        return <group key={part} position={[.91,part==='start'?1.705:1.225,1.338]} ref={g=>{if(g)controls.current[(id+'-'+part) as Target]=g;}}>
+          <GlowingBox position={[0,0,0]} size={[.22,.128,.045]} color={part==='start'?(running?tealLamp:'#719782'):(running?'#ae594b':alert)}/>
+        </group>;
+      })}
       <Sign position={[.91,1.53,1.257]} w={.29} h={.065} title="START"/>
       <Sign position={[.91,1.05,1.257]} w={.29} h={.065} title="STOP"/>
       {a ? <mesh ref={beacon} geometry={cube} position={[.8,3.91,.36]} scale={[.22,.1,.19]} material={material('#87724d')}/> :
@@ -317,33 +352,51 @@ function Machines({s}:{s:Session}) {
 }
 
 function Office({s}:{s:Session}) {
-  const arm=useRef<T.Group>(null), body=useRef<T.Group>(null), other=useRef<T.Group>(null);
-  useFrame(({clock})=>{
-    const phase=s.film && !s.settings.reduced ? clock.elapsedTime : 0;
-    arm.current!.rotation.x=-.27-Math.sin(phase*3.4)*.23;
-    body.current!.rotation.y=.14+Math.sin(phase*1.6)*.052;
-    other.current!.rotation.y=-.19+Math.sin(phase*1.7)*.074;
+  const arm=useRef<T.Group>(null), report=useRef<T.Group>(null);
+  const audit=s.film?.kind==='audit';
+  const role=audit?'engineering':'support';
+  useFrame(()=>{
+    const f=s.film;
+    if(!f || (f.kind!=='audit'&&f.kind!=='incident')) return;
+    const t=s.settings.reduced?1:f.time;
+    const talk=f.beat===1?Math.sin(Math.min(3,t)*1.65)*.22:0;
+    arm.current!.rotation.x=-.16-talk;
+    const opening=f.beat>=2?T.MathUtils.smoothstep(t,.14,1.55):0;
+    report.current!.rotation.x=audit?.60-opening*.66:1.31-opening*1.44;
+    report.current!.position.y=audit?1.01+opening*.28:1.28;
   });
   return <group position={[0,0,OFFICE_SHIFT]}>
     <Batch boxes={officeArchitecture}/>
-    <pointLight position={[8,3.85,-23.4]} distance={11} intensity={43} color="#ffe0b1"/>
+    <pointLight position={[8,3.85,-23.4]} distance={11} intensity={42} color="#ffe0b1"/>
     <Sign position={[8.1,3.2,-27.626]} w={5.52} h={1.58} title="OPERATIONS" sub="THE TRAINING WORKS   /   INTERNAL BRIEFING"/>
-    <Sign position={[6.83,1.19,-23.548]} w={.73} h={.14} title="CEO" sub="EXECUTIVE OFFICE"/>
-    <group ref={body} position={[6.44,.1,-25.05]}>
-      <Batch boxes={ceo} shadows={false}/>
-      <Sign position={[.075,1.47,.20]} w={.23} h={.095} title="CEO"/>
-      <group position={[.38,1.47,0]} ref={arm}>
-        <GlowingBox position={[0,-.26,.03]} size={[.21,.48,.25]} color="#394b51"/>
-        <GlowingBox position={[0,-.52,.048]} size={[.17,.17,.18]} color="#d7a67f"/>
+    <Sign position={[6.37,1.20,-23.372]} w={1.48} h={.15} title="OPERATIONS MANAGER" sub="FACTORY OPERATIONS"/>
+    <group position={[6.44,.1,-25.05]} rotation-y={.045}>
+      <Batch boxes={manager} shadows={false}/>
+      <group position={[.39,1.47,0]} ref={arm}>
+        <GlowingBox position={[0,-.26,.03]} size={[.21,.48,.25]} color={uniform.manager}/>
+        <GlowingBox position={[0,-.45,.065]} size={[.18,.061,.21]} color="#e4d6c3"/>
+        <GlowingBox position={[0,-.52,.081]} size={[.17,.155,.178]} color={skin.manager}/>
       </group>
-      <GlowingBox position={[-.39,1.15,.03]} size={[.21,.62,.25]} color="#394b51"/>
+      <GlowingBox position={[-.39,1.15,.03]} size={[.21,.62,.25]} color={uniform.manager}/>
     </group>
-    <group ref={other} position={[9.16,.1,-25.18]}>
-      <Batch boxes={tech} shadows={false}/>
-      <GlowingBox position={[-.37,1.23,.19]} size={[.2,.27,.29]} color="#557b72"/>
-      <GlowingBox position={[.37,1.23,.19]} size={[.2,.27,.29]} color="#557b72"/>
-      <Sign position={[.29,1.64,.19]} w={.15} h={.105} title={s.film?.kind==='audit'?'QA':'IT'}/>
-      <Sign position={[0,1.48,.565]} w={.53} h={.25} title={s.film?.kind==='audit'?'PRESS RECORD':'INCIDENT'} sub={s.film?.kind==='audit'?'REVIEW REQUIRED':'FILES LOCKED'}/>
+    <group position={[9.16,.1,-25.18]} rotation-y={-.12}>
+      <Batch boxes={audit?engineering:support} shadows={false}/>
+      <Sign position={[.19,1.50,.23]} w={.33} h={.107} title={audit?'ENGINEERING':'IT SUPPORT'} sub="WORKS STAFF"/>
+      {[-1,1].map(side=><group key={side} position={[side*.39,1.19,.09]} rotation-x={-.38}>
+        <GlowingBox position={[0,-.07,.11]} size={[.19,.42,.2]} color={uniform[role]}/>
+        <GlowingBox position={[0,-.14,.24]} size={[.155,.19,.15]} color={skin[role]}/>
+      </group>)}
+      {!audit&&<GlowingBox position={[0,1.29,.5]} size={[.64,.072,.43]} color={ink}/>}
+      <group ref={report} position={[0,1.28,.36]}>
+        {audit?<>
+          <group position={[0,.23,.064]} scale={[1.27,1.15,1]}><Batch boxes={boardBoxes} shadows={false}/></group>
+          <Sign position={[0,.29,.103]} w={.42} h={.17} title="INSPECTION REPORT" sub="DISCREPANCY FOUND"/>
+        </>:<>
+          <GlowingBox position={[0,.22,.015]} size={[.67,.43,.064]} color={slate}/>
+          <GlowingBox position={[0,.218,.052]} size={[.60,.357,.026]} color="#5a3638"/>
+          <Sign position={[0,.218,.071]} w={.57} h={.33} title="SECURITY INCIDENT" sub="SHARED FILES LOCKED"/>
+        </>}
+      </group>
     </group>
   </group>;
 }
@@ -379,9 +432,12 @@ function blockedView(a:Point,b:Point,object=false) {
   return false;
 }
 
-function Runner({session:s,keys,markers,update,touch}:Props) {
+function Runner({session:s,keys,markers,update,touch,monitor,compact}:Props) {
   const {camera,gl,size,setDpr}=useThree();
   const floor=useRef<T.Mesh>(null);
+  const highlight=useRef<T.Mesh>(null);
+  const soundClock=useRef({elapsed:0,walked:0});
+  const screenCorners=useMemo(()=>[new T.Vector3(),new T.Vector3()],[]);
   const lastUI=useRef('');
   const smooth=useRef({yaw:s.yaw,pitch:s.pitch,x:s.pos[0],z:s.pos[1],y:1.71});
   const perf=useRef({time:0,frames:0,slow:false});
@@ -396,10 +452,10 @@ function Runner({session:s,keys,markers,update,touch}:Props) {
   }),[]);
   useEffect(()=>{
     if(camera instanceof T.PerspectiveCamera) {
-      camera.fov=size.width/size.height<.7?67:55;
+      camera.fov=size.width/size.height<.7?74:s.settings.fov;
       camera.updateProjectionMatrix();
     }
-  },[size.width,size.height,camera]);
+  },[size.width,size.height,camera,s.settings.fov]);
   useEffect(()=>{
     perf.current={time:0,frames:0,slow:false};
     setDpr(Math.min(devicePixelRatio || 1,s.settings.quality==='low'?.85:touch?1.2:1.6));
@@ -408,6 +464,7 @@ function Runner({session:s,keys,markers,update,touch}:Props) {
     const el=gl.domElement;
     const press=(e:PointerEvent)=>{
       if(!s.started || s.panel || s.film || e.button!==0) return;
+      if(s.settings.sound&&audioStatus()!=='running') {setAudioLevel(true,s.settings.volume);unlock();}
       if(document.pointerLockElement===el) return;
       gesture.current={id:e.pointerId,x:e.clientX,y:e.clientY,lastX:e.clientX,lastY:e.clientY,moved:false};
       el.setPointerCapture(e.pointerId);
@@ -416,6 +473,7 @@ function Runner({session:s,keys,markers,update,touch}:Props) {
       if(!s.started || s.panel || s.film) return;
       if(document.pointerLockElement===el && e.pointerType==='mouse') {
         s.look=null;
+        s.gazeSelection=null;
         s.focus=null;
         s.yaw-=e.movementX*.00245;
         s.pitch=T.MathUtils.clamp(s.pitch-e.movementY*.00245,-1.18,1.18);
@@ -426,6 +484,7 @@ function Runner({session:s,keys,markers,update,touch}:Props) {
       if(Math.hypot(e.clientX-g.x,e.clientY-g.y)>(e.pointerType==='mouse'?4:8)) g.moved=true;
       if(g.moved) {
         s.look=null;
+        s.gazeSelection=null;
         s.nav=null;
         s.focus=null;
         const sensitivity=e.pointerType==='mouse'?.0039:.0059;
@@ -478,6 +537,7 @@ function Runner({session:s,keys,markers,update,touch}:Props) {
         p.time=0;p.frames=0;
       }
     }
+    const before=s.pos;
     const changed=tick(s,dt,keys);
     const f=s.film, m=smooth.current;
     let yaw=s.yaw,pitch=s.pitch,x=s.pos[0],z=s.pos[1],y=1.72;
@@ -486,39 +546,45 @@ function Runner({session:s,keys,markers,update,touch}:Props) {
     }
     if(!s.settings.reduced && !s.panel && !f && (s.nav || keys.size)) y+=Math.sin(clock.elapsedTime*10)*.026;
     if(s.panel==='mail') {
-      z=Math.min(s.pos[1],-10.09);
-      x=T.MathUtils.lerp(s.pos[0],7.6,.56);
-      yaw=turnTo([x,z],[7.6,-11.48]); pitch=.11;
+      x=7.6;z=compact?-9.95:-10.24;y=1.92;yaw=0;pitch=0;
     }
     if(s.focus && !f && !s.panel) {
       const [ax,ay,az]=positions[s.focus.target].anchor;
       const d=distance(s.pos,[ax,az]), gearFocus=isGear(s.focus.target);
-      const framing=gearFocus?(size.width/size.height<.7?1.05:.73):.65;
-      const lean=Math.min(gearFocus?.43:.34,Math.max(0,d-framing));
+      const framing=gearFocus?1.12:.92;
+      const lean=Math.min(.19,Math.max(0,d-framing));
       x+=(ax-x)/Math.max(.1,d)*lean;
       z+=(az-z)/Math.max(.1,d)*lean;
-      y+=T.MathUtils.clamp((ay-y)*.42,-.29,.26);
+      y+=T.MathUtils.clamp((ay-y)*.22,-.14,.13);
       yaw=turnTo([x,z],[ax,az]);
       pitch=Math.atan2(ay-y,Math.max(.34,d-lean));
     }
     if(f?.kind==='near') {
-      if(f.time<REACT_AT) { yaw=m.yaw; pitch=m.pitch; }
+      if(f.time<(f.holdView?f.horn+ROAD_REACTION_DELAY:f.approachAt+.7)) { yaw=m.yaw; pitch=m.pitch; }
       else {
-        const lane=f.side===1?0:1;
-        const truck=truckMotion(s,lane);
+        const truck=truckMotion(s,f.side===1?0:1);
         yaw=turnTo([x,z],[truck.x-f.side*2.55,truck.z]);
-        pitch=-.08;
+        pitch=-.055;
+      }
+      if(!s.settings.reduced) {
+        z+=(f.curb===ROAD.near?-1:1)*T.MathUtils.smoothstep(f.time,.4,2.5)*.44;
+        y+=.02*Math.sin(f.time*7)*Math.min(f.time,1);
       }
     } else if(f?.kind==='failure' && f.reason==='reach') {
       const [ax,ay,az]=positions['a-reach'].anchor;
       yaw=turnTo([x,z],[ax,az]);pitch=Math.atan2(ay-y,distance([x,z],[ax,az]));
-    } else if((f?.kind==='incident'||f?.kind==='audit') && f.time>=1.12) {
-      const showEmployee=f.time>=(f.kind==='audit'?6.2:6.0);
-      x=showEmployee?8.52:6.62;z=(showEmployee?-22.71:-22.53)+OFFICE_SHIFT;y=1.76;
-      yaw=showEmployee?-.27:.075;pitch=-.025;
+      if(!s.settings.reduced && f.time>REACH_JOLT && f.time<REACH_JOLT+.35)
+        pitch-=.12*Math.sin(Math.PI*(f.time-REACH_JOLT)/.35);
+    } else if((f?.kind==='incident'||f?.kind==='audit') && (f.beat>0||f.time>1.2)) {
+      const staff=f.beat>=2;
+      const move=T.MathUtils.smoothstep(f.time,0,2);
+      x=staff?8.97:6.47;
+      z=(staff?-22.66-move*.22:-22.22-move*.24)+OFFICE_SHIFT;
+      y=1.74;
+      yaw=staff?-.06:.015;pitch=-.027;
     }
     const direct=Math.hypot(m.x-x,m.z-z)>12 || (changed && Math.hypot(m.x-x,m.z-z)>1.5);
-    const rate=s.settings.reduced?24:f?.kind==='near'?6.8:12;
+    const rate=s.settings.reduced?22:f?.kind==='near'?4.9:f?.kind==='audit'||f?.kind==='incident'?2.9:s.panel==='mail'?6:10;
     m.x=direct?x:T.MathUtils.damp(m.x,x,rate,dt);
     m.z=direct?z:T.MathUtils.damp(m.z,z,rate,dt);
     m.y=direct?y:T.MathUtils.damp(m.y,y,rate,dt);
@@ -526,7 +592,7 @@ function Runner({session:s,keys,markers,update,touch}:Props) {
     m.pitch=direct?pitch:T.MathUtils.damp(m.pitch,pitch,rate,dt);
     if(camera instanceof T.PerspectiveCamera && size.width/size.height<.7) {
       const viewingCabinet=s.pos[1]<-.58 && s.pos[1]>-4.42 && Math.abs(s.pos[0]-6.9)<2.25 && !f && !s.focus;
-      const fov=T.MathUtils.damp(camera.fov,viewingCabinet?73:67,7,dt);
+      const fov=T.MathUtils.damp(camera.fov,viewingCabinet?77:74,7,dt);
       if(Math.abs(fov-camera.fov)>.01) {camera.fov=fov;camera.updateProjectionMatrix();}
     }
     camera.position.set(m.x,m.y,m.z);
@@ -535,6 +601,45 @@ function Runner({session:s,keys,markers,update,touch}:Props) {
     camera.updateMatrixWorld();
     viewPosition.set(0,0,-1).applyQuaternion(camera.quaternion);
     const observedNow=observeView(s,m.yaw,m.pitch,dt);
+    if(s.panel==='mail'&&!compact&&monitor.current) {
+      const monitorScreen=monitor.current;
+      const [a,b]=screenCorners;
+      a.set(6.862,2.474,-11.409).project(camera);
+      b.set(8.338,1.366,-11.409).project(camera);
+      monitorScreen.style.left=((a.x+1)*size.width*.5)+'px';
+      monitorScreen.style.top=((1-a.y)*size.height*.5)+'px';
+      monitorScreen.style.width=((b.x-a.x)*size.width*.5)+'px';
+      monitorScreen.style.height=((a.y-b.y)*size.height*.5)+'px';
+      const aligned=Math.abs(m.x-7.6)+Math.abs(m.z+10.24)+Math.abs(angleDelta(m.yaw,0))<.12;
+      monitorScreen.dataset.aligned=String(aligned);
+    }
+    if(highlight.current) {
+      const focus=s.focus;
+      highlight.current.visible=!!focus && !isGear(focus.target) && !s.panel && !f;
+      if(focus&&highlight.current.visible) {
+        highlight.current.position.set(...positions[focus.target].anchor).lerp(camera.position,.045);
+        highlight.current.quaternion.copy(camera.quaternion);
+      }
+    }
+    const audio=soundClock.current;
+    audio.elapsed+=dt;
+    const step=distance(before,s.pos);
+    if(step>0&&step<.33&&!f&&!s.panel) {
+      audio.walked+=step;
+      if(audio.walked>=.88) {
+        audio.walked=0;
+        play('step',s.settings.sound);
+      }
+    }
+    if(audio.elapsed>=.09) {
+      audio.elapsed=0;
+      const active=s.started&&!s.panel&&filmStage(s)!=='near-black'&&filmStage(s)!=='machine-black'&&f?.kind!=='incident'&&f?.kind!=='audit';
+      updateAmbience(active,s.pos[1]>0,([0,1] as const).map(lane=>{
+        const truck=truckMotion(s,lane);
+        const p:[number,number]=[truck.x,truck.z];
+        return {distance:truck.visible?distance([m.x,m.z],p):100,pan:-Math.sin(angleDelta(m.yaw,turnTo([m.x,m.z],p)))};
+      }));
+    }
     const active=objective(s);
     for(const [id,v] of targetList) {
       const el=markers.current[id];
@@ -557,13 +662,16 @@ function Runner({session:s,keys,markers,update,touch}:Props) {
       if(s.nav) floor.current.position.set(s.nav.end[0],s.nav.end[1]<0?.131:.074,s.nav.end[1]);
     }
     const fingerprint=[filmStage(s),s.toastId,!!s.nav,s.panel,nearest(s),active,s.pressMode,s.pos[1]<-.55,
-      s.focus?.target,nearCrossing(s.pos),observed(s,'left'),observed(s,'right'),!!s.passage,s.roadClear].join('|');
+      s.focus?.target,nearCrossing(s.pos),observed(s,'left'),observed(s,'right'),!!s.passage,s.roadClear,s.gazeSelection,!!s.look,s.film?canContinue(s.film):false].join('|');
     if(changed || observedNow || fingerprint!==lastUI.current) {
       lastUI.current=fingerprint;
       update();
     }
   });
-  return <mesh ref={floor} visible={false} rotation-x={-Math.PI/2}><ringGeometry args={[.24,.305,28]}/><meshBasicMaterial color="#ffd08a" transparent opacity={.83} depthWrite={false}/></mesh>;
+  return <>
+    <mesh ref={floor} visible={false} rotation-x={-Math.PI/2}><ringGeometry args={[.24,.305,28]}/><meshBasicMaterial color="#ffd08a" transparent opacity={.83} depthWrite={false}/></mesh>
+    <mesh ref={highlight} visible={false}><ringGeometry args={[.115,.125,24]}/><meshBasicMaterial color="#ffd08a" transparent opacity={.7} depthWrite={false}/></mesh>
+  </>;
 }
 function Lights({s,high}:{s:Session;high:boolean}) {
   const point=useRef<T.PointLight>(null);
@@ -602,17 +710,15 @@ function Stage(props:Props & {high:boolean}) {
     <Sign position={[-16.9,1.58,4.455]} w={1.75} h={.45} title="CONTAINER 04" sub="WORKS LOGISTICS"/>
     <Sign position={[8.58,3.78,.454]} w={2.17} h={.55} title="WORKS / 01" sub="MANUFACTURING"/>
     <Sign position={[6.9,2.47,-4.576]} w={2.89} h={.27} title="SAFETY PREPARATION" sub="CHECK CONDITION BEFORE USE"/>
-    <Sign position={[6.9,3.5,-4.66]} w={2.50} h={1.66} title="PPE REQUIRED" sub="CLEAR SAFETY GLASSES|INTACT HEARING DEFENDERS|REINFORCED SAFETY BOOTS" kind="poster"/>
-    <Sign position={[2.35,2.04,-7.634]} w={3.26} h={1.92} title="PRESS BAY SAFETY" sub="VERIFY STOPPED STATUS|WALK ALL FOUR SIDES|EXAMINE THE GUARD|TAG DEFECTS / KEEP CLEAR|FINISH CYCLE, STOP, RECORD" kind="poster"/>
     <Sign position={[0,2.67,-.383]} rotation={Math.PI} w={1.64} h={.38} title="EXIT" sub="TO FORECOURT"/>
-    {hasMail(s.safety) && <Sign position={[7.6,1.87,-11.438]} w={1.37} h={.72} title={s.safety.reported?'SECURE':'NEW MESSAGE'} sub={s.safety.reported?'PERSONNEL DIRECTORY':'WORKS MAIL / 01'}/>}
+    {s.panel!=='mail'&&<Sign position={[7.6,1.92,-11.405]} w={1.46} h={1.09} title={hasMail(s.safety)&&!s.safety.mailDisposition?'NEW MESSAGE':'WORKS 98'} sub="LOCAL TRAINING TERMINAL"/>}
     {!s.started && <Html position={[0,.08,18.1]} center style={{pointerEvents:'none'}}><div className="world-beacon" aria-hidden="true"/></Html>}
     <Runner {...props}/>
   </>;
 }
 export default function World(props:Props) {
   const high=props.session.settings.quality==='high' || props.session.settings.quality==='auto' && !props.touch && (navigator.hardwareConcurrency || 4)>=6;
-  return <Canvas className="scene" aria-label="First-person factory grounds and training facility" camera={{position:[0,2.16,22.7],near:.055,far:130,fov:55}} shadows={high} dpr={[.8,1.6]}
+  return <Canvas className="scene" aria-label="First-person factory grounds and training facility" camera={{position:[0,2.16,22.7],near:.055,far:150,fov:79}} shadows={high} dpr={[.8,1.6]}
     gl={{powerPreference:props.touch?'low-power':'high-performance',antialias:!props.touch,alpha:false}}
     onCreated={({gl})=>{gl.toneMapping=T.ACESFilmicToneMapping;gl.toneMappingExposure=1.12;}}>
     <Stage {...props} high={high}/>

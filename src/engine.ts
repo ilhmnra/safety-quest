@@ -1,13 +1,10 @@
 import { MathUtils } from 'three';
 import { play, warmMusic } from './audio';
+import { canContinue, filmStage, REACH_CUT, REACH_JOLT } from './cinematics';
+import { advanceTraffic, dangerFilm, fromSouth, roadOccupied, startPassage, updateClearance } from './traffic';
 import { DESK, distance, gear, inCrossing, isGear, machinePart, onRoad, positions, PRESS, ROAD, route, solid, START, type Gear, type Part, type Point, type Press, type Target } from './map';
-import { equipped, hasMail, HORN_AT, inaccurateRecords, nearCrossing, observed, ROAD_CUT, safeToStart, save, type Inspection, type Session } from './state';
+import { equipped, hasMail, nearCrossing, observed, recordIssues, recordName, safeToStart, save, type Inspection, type PreparationCheck, type Session } from './state';
 
-export const TRUCK_HALF_WIDTH=1.28;
-export const TRUCK_HALF_LENGTH=3.05;
-export const APPROACH_SPEED=10.2;
-const PASS_SPEED=16;
-const PLAYER_RADIUS=.29;
 const ROAD_EDGE_BUFFER=.02;
 
 export function say(s:Session, message:string) {
@@ -16,19 +13,20 @@ export function say(s:Session, message:string) {
 }
 export const turnTo=(from:Point,to:Point)=>Math.atan2(from[0]-to[0],from[1]-to[1]);
 export const angleDelta=(from:number,to:number)=>Math.atan2(Math.sin(to-from),Math.cos(to-from));
-const fromSouth=(s:Session)=>s.pos[1]>(ROAD.near+ROAD.far)/2;
-const sideYaw=(s:Session,side:'left'|'right')=>(fromSouth(s)?0:Math.PI)+(side==='left'?1:-1)*1.38;
-const newGaze=()=>({left:-Infinity,right:-Infinity,side:null,dwell:0} as const);
+const sideYaw=(s:Session,side:'left'|'center'|'right')=>(fromSouth(s.pos)?0:Math.PI)+(side==='center'?0:side==='left'?1:-1)*1.38;
+const newGaze=()=>({left:-Infinity,right:-Infinity,side:null,dwell:0,curb:null} as const);
 
-export function turnHead(s:Session,side:'left'|'right') {
+export function turnHead(s:Session,side:'left'|'center'|'right') {
   s.nav=null;
   s.focus=null;
+  s.gazeSelection=side;
   s.look=[sideYaw(s,side),-.025];
 }
 
-// Consume the rendered camera heading, after interpolation, rather than the input event.
 export function observeView(s:Session,yaw:number,pitch:number,dt:number) {
   if(s.panel || s.film || !s.started || !nearCrossing(s.pos) || s.passage || s.roadClear) return false;
+  const curb=fromSouth(s.pos)?'south':'north';
+  if(s.gaze.curb!==curb) s.gaze={...newGaze(),curb};
   const side=Math.abs(pitch)>.64 ? null : (['left','right'] as const).find(d=>Math.abs(angleDelta(yaw,sideYaw(s,d)))<.57) ?? null;
   if(side!==s.gaze.side) {
     s.gaze.side=side;
@@ -39,46 +37,16 @@ export function observeView(s:Session,yaw:number,pitch:number,dt:number) {
   if(s.gaze.dwell<.16) return false;
   s.gaze[side]=s.time;
   if(!observed(s,'left') || !observed(s,'right')) return false;
-  s.passage={left:0,right:0};
+  startPassage(s);
   say(s,'Traffic approaching. Wait at the curb.');
   return true;
 }
 
-export function truckMotion(s:Session,lane:0|1): {x:number; z:number; direction:1|-1; visible:boolean} {
-  const side=lane===0?1:-1;
-  const z=ROAD.lanes[lane];
-  if(s.film?.kind==='near') {
-    const f=s.film;
-    if(f.side===side) return {x:f.startX-side*APPROACH_SPEED*Math.min(f.time,ROAD_CUT),z,direction:side,visible:f.time<ROAD_CUT+.2};
-    return {x:s.traffic[lane],z,direction:side,visible:false};
-  }
-  return {x:s.traffic[lane],z,direction:side,visible:Math.abs(s.traffic[lane])<47};
-}
-function advanceTraffic(s:Session,dt:number) {
-  if(!s.passage) return false;
-  s.passage.right+=dt;
-  if(s.passage.right>=2.3) s.passage.left+=dt;
-  const times=[s.passage.right,s.passage.left];
-  for(const lane of [0,1] as const) {
-    const side=lane===0?1:-1;
-    s.traffic[lane]=side*(48-PASS_SPEED*times[lane]);
-  }
-  const clear=s.traffic[0]<-8 && s.traffic[1]>8;
-  const changed=clear && !s.roadClear && s.passage.left<4;
-  if(changed) {
-    s.roadClear=true;
-    say(s,'Road clear. Walk across the zebra stripes.');
-  }
-  if(s.traffic[1]>49) {
-    s.passage=null;
-    s.traffic=[48,-48];
-  }
-  return changed;
-}
-
 export function targetAvailable(s:Session,target:Target) {
   if(target==='crossing') return s.pos[1]>ROAD.near && !s.roadClear;
-  if(target==='arrival') return (s.roadClear || nearCrossing(s.pos)) && s.pos[1]>ROAD.far;
+  if(target==='crossing-north') return s.pos[1]>0 && s.pos[1]<ROAD.far && !s.roadClear;
+  if(target==='arrival') return (s.roadClear || nearCrossing(s.pos)) && fromSouth(s.pos);
+  if(target==='arrival-south') return (s.roadClear || nearCrossing(s.pos)) && !fromSouth(s.pos);
   if(target==='door') return s.pos[1]>-.55 && !s.safety.door;
   if(s.pos[1]>-.65) return false;
   if(target==='clipboard') return !s.safety.clipboard;
@@ -98,30 +66,31 @@ function aimAt(s:Session,target:Target) {
 }
 
 export function interact(s:Session,target:Target) {
+  if((target==='tag'||target==='clipboard') && !targetAvailable(s,target)) return;
   s.nav=null;
   s.focus=null;
-  if(target==='crossing') {
-    if(s.roadClear) navigate(s,'arrival');
-    else {
-      s.look=[fromSouth(s)?0:Math.PI,-.055];
-      say(s,'Look left and right from the curb.');
-    }
-  } else if(target==='arrival') {
-    say(s,'Follow the entrance sign.');
+  if(target==='crossing'||target==='crossing-north') {
+    turnHead(s,'center');
+    say(s,'Look left and right from the curb.');
+  } else if(target==='arrival'||target==='arrival-south') {
+    say(s,target==='arrival'?'Follow the entrance sign.':'You are back at the visitor entrance.');
   } else if(target==='door') {
     s.safety.door=true;
     play('door',s.settings.sound);
     save(s);
-    say(s,'The preparation station is inside, on your right.');
+    say(s,'Pick up the inspection clipboard on the table inside.');
     navigate(s,[0,-2.25]);
   } else if(target==='ppe') {
     aimAt(s,target);
-    say(s,'Inspect the equipment on the shelves before wearing it.');
+    s.panel='cabinet';
+    play('ui',s.settings.sound);
   } else if(target==='clipboard') {
     s.safety.clipboard=true;
+    s.panel='clipboard';
+    s.clipboardBack=null;
+    s.pressPage='ppe';
     save(s);
-    play('switch',s.settings.sound);
-    say(s,'Clipboard picked up. Keep a separate record for each press.');
+    play('paper',s.settings.sound);
   } else if(target==='tag') {
     s.safety.tagHeld=true;
     save(s);
@@ -137,11 +106,16 @@ export function interact(s:Session,target:Target) {
     }
   } else if(isGear(target)) {
     aimAt(s,target);
+    s.panel=null;
     s.focus={target,time:0};
+    play('ui',s.settings.sound);
   } else {
     const [press,part]=machinePart(target)!;
-    if(part==='start') startPress(s,press);
-    else if(part==='stop') stopPress(s,press);
+    if(part==='start'||part==='stop') {
+      s.controlPress={target,until:s.time+.24};
+      if(part==='start') startPress(s,press);
+      else stopPress(s,press);
+    }
     else if(part==='tag') tagPress(s);
     else if(part==='reach') {
       aimAt(s,target);
@@ -179,7 +153,7 @@ export function nearest(s:Session):Target|undefined {
   let best:Target|undefined, rating=Infinity;
   for(const [id,value] of Object.entries(positions)) {
     const target=id as Target;
-    if(!targetAvailable(s,target) || target==='arrival') continue;
+    if(!targetAvailable(s,target) || target==='arrival' || target==='arrival-south') continue;
     const d=distance(s.pos,value.point);
     if(d>value.reach+.1) continue;
     const [x,y,z]=value.anchor;
@@ -196,8 +170,11 @@ export function gearAction(s:Session,id:Gear) {
   const item=gear[id];
   const wearing=s.safety.ppe.includes(id);
   s.safety.ppe=s.safety.ppe.filter(other=>gear[other].slot!==item.slot);
-  if(!wearing) s.safety.ppe.push(id);
-  s.focus=null;
+  if(!wearing) {
+    s.safety.ppe.push(id);
+    if(!s.safety.collectedPpe.includes(id)) s.safety.collectedPpe.push(id);
+  }
+  if(!s.safety.inspectedPpe.includes(id)) s.safety.inspectedPpe.push(id);
   save(s);
   play('switch',s.settings.sound);
   say(s,!wearing&&!item.sound?item.detail:wearing?`${item.name} returned to the shelf.`:`${item.name} fitted.`);
@@ -214,24 +191,31 @@ function fail(s:Session,reason:'reach'|'operation') {
 export function endFilm(s:Session) {
   const film=s.film;
   if(!film) return;
+  s.seenFilms.add(film.kind);
   s.film=null;
   s.look=null;
   s.focus=null;
   s.yaw=0;
   s.pitch=-.025;
   if(film.kind==='near') {
-    s.pos=[...START];
+    s.pos=[...film.restart];
     s.roadClear=false;
     s.crossingHeading=null;
     s.passage=null;
-    s.traffic=[48,-48];
     s.gaze=newGaze();
-  } else if(film.kind==='incident' || film.kind==='audit') {
+    s.gazeSelection=null;
+    if(film.curb===ROAD.far) s.yaw=Math.PI;
+  } else if(film.kind==='incident') {
     s.pos=[...DESK];
     s.checkpoint='desk';
-    s.desktop=film.kind==='incident'?'inbox':'security';
-    if(film.kind==='incident') s.panel='mail';
-    else say(s,'Review '+inaccurateRecords(s.safety).map(p=>'Press '+p.toUpperCase()).join(' and ')+' on your clipboard.');
+    s.desktop='inbox';
+    s.panel='mail';
+  } else if(film.kind==='audit') {
+    s.pos=[...PRESS];
+    s.checkpoint='press';
+    const issues=recordIssues(s.safety);
+    s.pressPage=issues[0]?.page??'a';
+    say(s,'Review '+[...new Set(issues.map(issue=>recordName(issue.page)))].join(' and ')+' on your clipboard.');
   } else {
     s.pos=[...PRESS];
     s.checkpoint='press';
@@ -242,6 +226,30 @@ export function endFilm(s:Session) {
   save(s);
 }
 
+export function skipFilm(s:Session) {
+  const film=s.film;
+  if(!film || !s.seenFilms.has(film.kind)) return;
+  if(film.kind==='near') film.time=film.cut;
+  else if(film.kind==='failure') film.time=film.reason==='reach'?REACH_CUT:2.55;
+  else {film.beat=3;film.time=0;}
+}
+
+export function continueFilm(s:Session) {
+  const f=s.film;
+  if(!f || !canContinue(f)) return;
+  play('ui',s.settings.sound);
+  if((f.kind==='incident'||f.kind==='audit') && f.beat<3) {
+    f.beat++;
+    f.time=0;
+  } else endFilm(s);
+}
+
+export function markPreparation(s:Session,key:PreparationCheck,checked:boolean) {
+  s.safety.recordedPpe[key]=checked;
+  save(s);
+  play('paper',s.settings.sound);
+}
+
 function record(s:Session,press:Press,key:Inspection) {
   s.safety.inspected[press][key]=true;
   save(s);
@@ -250,6 +258,7 @@ function record(s:Session,press:Press,key:Inspection) {
 export function markRecord(s:Session,press:Press,key:Inspection,checked:boolean) {
   s.safety.recorded[press][key]=checked;
   save(s);
+  play('paper',s.settings.sound);
 }
 
 function finishTraining(s:Session) {
@@ -265,6 +274,7 @@ function tagPress(s:Session) {
   if(!s.safety.inspected.a.guard) { say(s,'Examine the tooling guard and locate the obstruction first.'); return; }
   s.safety.tagHeld=false;
   s.safety.tagged=true;
+  s.safety.inspected.a.cycle=true;
   record(s,'a','tagged');
   play('switch',s.settings.sound);
   if(hasMail(s.safety)) finishTraining(s);
@@ -315,9 +325,17 @@ function stopPress(s:Session,press:Press) {
 }
 
 function inspect(s:Session,target:Target) {
+  if(isGear(target)) {
+    if(!s.safety.inspectedPpe.includes(target)) {
+      s.safety.inspectedPpe.push(target);
+      save(s);
+    }
+    return;
+  }
   const machine=machinePart(target);
   if(!machine) return;
   const [press,part]=machine;
+  if(part==='guard' && press==='b') s.safety.inspected.b.noDefects=true;
   if(part==='status') {
     if(press==='a' ? s.stoppedA : s.pressMode==='idle') record(s,press,'stopped');
     return;
@@ -329,7 +347,7 @@ export function mailDecision(s:Session,decision:'report'|'ignore'|'open') {
   if(!hasMail(s.safety) || s.safety.mailDisposition) return;
   if(decision==='open') {
     s.panel=null;
-    s.film={kind:'incident',time:0};
+    s.film={kind:'incident',time:0,beat:0};
     play('warning',s.settings.sound);
   } else {
     s.safety.mailDisposition=decision;
@@ -341,14 +359,14 @@ export function mailDecision(s:Session,decision:'report'|'ignore'|'open') {
 
 export function reviewRecords(s:Session) {
   if(!s.safety.mailDisposition || s.safety.reported || !hasMail(s.safety)) return;
-  const flagged=inaccurateRecords(s.safety);
+  const flagged=[...new Set(recordIssues(s.safety).map(issue=>recordName(issue.page)))];
   if(flagged.length) {
     if(!s.safety.auditShown) {
       s.safety.auditShown=true;
       save(s);
       s.panel=null;
-      s.film={kind:'audit',time:0};
-    } else say(s,`Review ${flagged.map(p=>'Press '+p.toUpperCase()).join(' and ')}. Check the record against the work you performed.`);
+      s.film={kind:'audit',time:0,beat:0};
+    } else say(s,`Review ${flagged.join(' and ')}. Check the record against the work you performed.`);
     return;
   }
   if(!s.safety.crossed || !equipped(s.safety) || !s.safety.clipboard) {
@@ -359,17 +377,6 @@ export function reviewRecords(s:Session) {
   s.panel='ending';
   save(s);
   warmMusic(s.settings.sound);
-}
-
-function approachDanger(s:Session,roadPoint:Point,unchecked:boolean) {
-  const left=observed(s,'left'),right=observed(s,'right');
-  const side=unchecked && left!==right
-    ? (left===fromSouth(s)?1:-1)
-    : (fromSouth(s)?1:-1);
-  s.film={kind:'near',time:0,side,startX:roadPoint[0]+side*23.4,curb:fromSouth(s)?ROAD.near:ROAD.far,unchecked};
-  s.nav=null;
-  s.look=null;
-  s.focus=null;
 }
 
 function roadStep(s:Session,next:Point) {
@@ -383,15 +390,15 @@ function roadStep(s:Session,next:Point) {
     return 'wait';
   }
   if(!zebra || !s.roadClear) {
-    approachDanger(s,next,zebra);
+    s.film=dangerFilm(s,next,zebra,observed(s,'left'),observed(s,'right'));
+    s.nav=null;
+    s.look=null;
+    s.focus=null;
+    s.passage=null;
+    s.roadClear=false;
     return 'film';
   }
-  const blocked=([0,1] as const).some(lane=>{
-    const truck=truckMotion(s,lane);
-    return truck.visible && Math.abs(truck.x-next[0])<TRUCK_HALF_LENGTH+PLAYER_RADIUS &&
-      Math.abs(truck.z-next[1])<TRUCK_HALF_WIDTH+PLAYER_RADIUS;
-  });
-  return blocked?'wait':'go';
+  return roadOccupied(s,next)?'wait':'go';
 }
 
 function move(s:Session,next:Point) {
@@ -409,31 +416,43 @@ function move(s:Session,next:Point) {
       save(s);
       say(s,'The training center is just ahead.');
     }
-    // Keep clearance until the pedestrian is completely off the stripes.
+    s.roadClear=false;
     s.gaze=newGaze();
+    s.gazeSelection=null;
     s.crossingHeading=null;
   }
   return false;
 }
 
 export function tick(s:Session,dt:number,keys:Set<string>):boolean {
-  const paused=s.panel==='pause'||s.panel==='settings'||s.panel==='restart'||s.panel==='ending'||
+  const paused=s.panel==='pause'||s.panel==='settings'||s.panel==='restart'||
     (s.panel==='portfolio' && (s.portfolioBack==='pause'||s.portfolioBack==='ending'));
   if(paused) return false;
   s.time+=dt;
-  let update=advanceTraffic(s,dt);
+  if(s.panel==='ending') return false;
   const film=s.film;
+  const stage=filmStage(s);
+  let update=stage!=='near-black' && advanceTraffic(s,dt);
+  if(update) say(s,'Road clear. Walk across the zebra stripes.');
   if(film) {
     const prev=film.time;
+    const ready=canContinue(film);
     film.time+=dt;
-    if(film.kind==='near' && prev<HORN_AT && film.time>=HORN_AT) {
-      play('horn',s.settings.sound,Math.sign(-Math.sin(angleDelta(s.yaw,film.side===1?-Math.PI/2:Math.PI/2))));
+    if(film.kind==='near' && prev<film.horn && film.time>=film.horn) {
+      const laneYaw=film.side===1?-Math.PI/2:Math.PI/2;
+      const spatial=-Math.sin(angleDelta(s.yaw,laneYaw));
+      const roadSide=film.curb===ROAD.near?film.side:-film.side;
+      play('horn',s.settings.sound,Math.abs(spatial)>.3?spatial:roadSide*.7);
     }
-    if(film.time>=(film.kind==='near'?4.75:film.kind==='failure'?3.8:film.kind==='audit'?11.4:13.6)) {
-      endFilm(s);
-      return true;
+    if(film.kind==='failure' && film.reason==='reach' && prev<REACH_JOLT && film.time>=REACH_JOLT) {
+      play('impact',s.settings.sound);
     }
-    return update;
+    return update || stage!==filmStage(s) || ready!==canContinue(film);
+  }
+  updateClearance(s,nearCrossing(s.pos));
+  if(!nearCrossing(s.pos) && !onRoad(s.pos) && !s.passage && s.gaze.curb) {
+    s.gaze=newGaze();
+    s.gazeSelection=null;
   }
   if(!s.stoppedA) s.faultTime+=dt;
   if(s.pressMode==='cycling') {
@@ -452,6 +471,7 @@ export function tick(s:Session,dt:number,keys:Set<string>):boolean {
   const pitchKey=Number(keys.has('arrowup'))-Number(keys.has('arrowdown'));
   if(yawKey || pitchKey) {
     s.look=null;
+    s.gazeSelection=null;
     s.focus=null;
     s.nav=null;
     s.yaw+=yawKey*dt*1.95;
@@ -480,7 +500,7 @@ export function tick(s:Session,dt:number,keys:Set<string>):boolean {
     s.nav=null;
     const speed=dt*3.3/Math.hypot(vx,vz);
     const preserveGaze=nearCrossing(s.pos) && (observed(s,'left') || observed(s,'right'));
-    const yaw=s.crossingHeading??(preserveGaze?(fromSouth(s)?0:Math.PI):s.yaw);
+    const yaw=s.crossingHeading??(preserveGaze?(fromSouth(s.pos)?0:Math.PI):s.yaw);
     next=[s.pos[0]+(Math.cos(yaw)*vx+Math.sin(yaw)*vz)*speed,s.pos[1]+(-Math.sin(yaw)*vx+Math.cos(yaw)*vz)*speed];
   } else if(s.nav) {
     const dest=s.nav.path[0];
@@ -518,6 +538,5 @@ export function tick(s:Session,dt:number,keys:Set<string>):boolean {
       save(s);
     }
   }
-  if(!onRoad(s.pos) && !nearCrossing(s.pos) && s.roadClear && s.safety.crossed && !s.passage) s.roadClear=false;
   return update;
 }

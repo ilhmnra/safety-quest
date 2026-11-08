@@ -1,99 +1,70 @@
-import { Action, Icon } from './components';
-import { gear, isGear, machinePart, positions, ROAD, type Part } from './map';
-import { checklist, filmStage, inaccurateRecords, type PortfolioTab, type Session } from './state';
-import { gearAction, mailDecision, markRecord, reviewRecords } from './engine';
+import { Action, Icon, Sheet } from './components';
+import { gear, isGear, machinePart, positions, ROAD, type Gear, type Part } from './map';
+import { checklist, preparationRows, recordIssues, recordName, type PortfolioTab, type Session } from './state';
+import { canContinue, filmStage } from './cinematics';
+import { gearAction, markPreparation, markRecord, reviewRecords } from './engine';
+import { play } from './audio';
 
 export type Act = (fn:()=>void)=>void;
 type Props={s:Session;act:Act;close:()=>void};
 
 export function Clipboard({s,act,close}:Props) {
-  const press=s.pressPage;
+  const page=s.pressPage;
   const ready=!!s.safety.mailDisposition && !s.safety.reported;
+  const turn=(next:Session['pressPage'])=>act(()=>{s.pressPage=next;play('paper',s.settings.sound);});
   return <div className="clipboard-layer">
     <section className="clipboard" role="dialog" aria-label="Inspection clipboard">
       <div className="clipboard-clip" aria-hidden="true"/>
       <header>
-        <div><div className="form-kicker">THE TRAINING WORKS · FORM SQ-02</div><h2>Press inspection record</h2></div>
+        <div><div className="form-kicker">THE TRAINING WORKS · FORM SQ-02</div><h2>Safety inspection</h2></div>
         <button className="icon-button" aria-label="Lower clipboard" onClick={close}><Icon name="close"/></button>
       </header>
-      <nav aria-label="Inspection forms">{(['a','b'] as const).map(id=>
-        <button key={id} aria-pressed={press===id} onClick={()=>act(()=>{s.pressPage=id;})}>Press {id.toUpperCase()}</button>)}</nav>
-      <fieldset>
-        <legend>Mark what you personally verified.</legend>
-        {checklist(press).map(([key,label])=><label key={key} className="form-check">
-          <input type="checkbox" checked={!!s.safety.recorded[press][key]} onChange={e=>act(()=>markRecord(s,press,key,e.target.checked))}/>
-          <span>{label}</span>
-        </label>)}
-      </fieldset>
+      <nav aria-label="Inspection pages">
+        <button aria-pressed={page==='ppe'} onClick={()=>turn('ppe')}>01 · PPE</button>
+        <button aria-pressed={page!=='ppe'} onClick={()=>turn(page==='b'?'b':'a')}>02 · Press machines</button>
+      </nav>
+      <div className="clipboard-paper" key={page}>
+        <h3>{page==='ppe'?'PERSONAL PROTECTIVE EQUIPMENT':'MACHINE PRESS SAFETY INSPECTION'}</h3>
+        <p>{page==='ppe'?'Check the cabinet. Sound PPE protects you during training. Leave damaged equipment on the shelf.':
+          'Check the guards and all sides. Report defects and follow authorized isolation procedures.'}</p>
+        {page!=='ppe'&&<nav aria-label="Press inspection records" className="press-tabs">
+          <button aria-pressed={page==='a'} onClick={()=>turn('a')}>Press A</button>
+          <button aria-pressed={page==='b'} onClick={()=>turn('b')}>Press B</button>
+        </nav>}
+        <fieldset>
+          <legend>Mark only what you personally verified.</legend>
+          {page==='ppe'?preparationRows.map(([key,label])=><label key={key} className="form-check">
+            <input type="checkbox" checked={!!s.safety.recordedPpe[key]} onChange={e=>act(()=>markPreparation(s,key,e.target.checked))}/>
+            <span>{label}</span>
+          </label>):checklist(page).map(([key,label])=><label key={key} className="form-check">
+            <input type="checkbox" checked={!!s.safety.recorded[page][key]} onChange={e=>act(()=>markRecord(s,page,key,e.target.checked))}/>
+            <span>{label}</span>
+          </label>)}
+        </fieldset>
+      </div>
       <footer>
-        <span>VISITOR RECORD · PRESS {press.toUpperCase()}</span>
+        <span>VISITOR RECORD · {page==='ppe'?'PREPARATION':'PRESS '+page.toUpperCase()}</span>
         {ready&&<button className="form-submit" onClick={()=>act(()=>reviewRecords(s))}>Submit records <Icon name="arrow" size={17}/></button>}
       </footer>
     </section>
   </div>;
 }
 
-export function Workstation({s,act,close,portfolio}:Props&{portfolio:()=>void}) {
-  const desktop=s.desktop;
-  const go=(screen:Session['desktop'])=>act(()=>{s.desktop=screen;});
-  return <div className="terminal-layer monitor-layer">
-    <section className="terminal workstation" role="dialog" aria-label="Works OS workstation">
-      <header className="terminal-top"><span className="terminal-dot"/><b>WORKS OS</b><span> / TRAINING TERMINAL</span>
-        <button className="icon-button close" aria-label="Close workstation" onClick={close}><Icon name="close"/></button>
-      </header>
-      <nav className="desktop-taskbar" aria-label="Workstation applications">
-        <button aria-pressed={desktop==='home'} onClick={()=>go('home')}>▦ Desktop</button>
-        <button aria-pressed={desktop==='inbox'||desktop==='message'||desktop==='report'} onClick={()=>go('inbox')}><Icon name="mail" size={16}/> Works Mail</button>
-        {s.safety.mailDisposition&&<button aria-pressed={desktop==='security'} onClick={()=>go('security')}>◈ Security</button>}
-      </nav>
-      <div className="desktop-screen">
-        {desktop==='home'&&<div className="desktop-wallpaper">
-          <span className="terminal-kicker">TRAINING TERMINAL / LOCAL USER</span>
-          <h2>Good shift.</h2>
-          <button className="desktop-icon" onClick={()=>go('inbox')}><Icon name="mail" size={32}/>Works Mail
-            {!s.safety.mailDisposition&&s.safety.completed&&s.safety.tagged&&<small>1 unread</small>}
-          </button>
-          {s.safety.reported&&<button className="desktop-icon" onClick={portfolio}>▤ Personnel directory</button>}
-        </div>}
-        {desktop==='inbox'&&<div className="inbox">
-          <div className="terminal-kicker">WORKS MAIL / INBOX</div><h2>Inbox</h2>
-          {s.safety.tagged&&s.safety.completed&&!s.safety.mailDisposition?
-            <button className="mail-row" onClick={()=>go('message')}><span className="unread-dot"/><span><strong>URGENT · Signed audit form required</strong><small>Compliance Desk · External sender</small></span><span aria-hidden="true">›</span></button>:
-            <p className="fine-print">You're caught up. There are no unread messages.</p>}
-        </div>}
-        {desktop==='message'&&<article className="mail-message">
-          <div className="message-tools">
-            <button onClick={()=>go('inbox')}>‹ Inbox</button>
-            <button onClick={()=>act(()=>mailDecision(s,'ignore'))}>Archive unopened</button>
-            <button onClick={()=>go('report')}>Report phishing</button>
-          </div>
-          <div className="terminal-kicker">WORKS MAIL / EXTERNAL</div>
-          <h2>URGENT · Signed audit form required</h2>
-          <p className="sender">Compliance Desk &lt;compliance@works-audit.example&gt;</p>
-          <p>Open the attached form within ten minutes to keep your site access. Do not forward this message.</p>
-          <button className="mail-attachment" onClick={()=>act(()=>mailDecision(s,'open'))}>
-            <span className="pdf-icon" aria-hidden="true">PDF</span><span><strong>Audit_Form_Immediate.pdf</strong><small>Click to open attachment</small></span><span aria-hidden="true">↗</span>
-          </button>
-        </article>}
-        {desktop==='report'&&<article className="mail-message">
-          <div className="terminal-kicker">WORKS MAIL / SECURITY DESK</div><h2>Report phishing</h2>
-          <p>Send the message and its headers to the site security team. The attachment stays closed.</p>
-          <div className="buttons"><Action kind="primary" onClick={()=>act(()=>mailDecision(s,'report'))}>Send to Security</Action>
-            <Action onClick={()=>go('message')}>Back to message</Action></div>
-        </article>}
-        {desktop==='security'&&<article className="mail-message">
-          <div className="terminal-kicker">SECURITY DESK / INBOX CLOSED</div><h2>{s.safety.mailDisposition==='report'?'Report received':'Message archived'}</h2>
-          <p>The attachment stayed closed.</p>
-          {s.safety.reported?<Action kind="primary" onClick={portfolio}>Open personnel directory</Action>:
-            <Action onClick={()=>act(()=>{s.panel='clipboard';})}>Open inspection clipboard</Action>}
-        </article>}
-      </div>
-      <footer className="terminal-footer"><span className="terminal-dot"/> LOCAL WORKSTATION <span>WORKS / 01</span></footer>
-    </section>
-  </div>;
+export function Cabinet({s,close,inspect,tag}:Props&{inspect:(id:Gear)=>void;tag:()=>void}) {
+  return <Sheet code="SAFETY PREPARATION" title="PPE cabinet" close={close} extra="cabinet-sheet">
+    <p>Choose an item to inspect or review your equipment.</p>
+    <ul className="cabinet-list">{(Object.keys(gear) as Gear[]).map(id=>{
+      const item=gear[id], worn=s.safety.ppe.includes(id), collected=s.safety.collectedPpe.includes(id);
+      return <li key={id}><div><strong>{item.name}</strong><small>{worn?'Equipped':collected?'Collected · on shelf':s.safety.inspectedPpe.includes(id)?'Inspected · on shelf':'On shelf'}</small></div>
+        <button onClick={()=>inspect(id)} aria-label={(worn?'Review ':'Inspect ')+item.name}>{worn?'Review':'Inspect'}</button></li>;
+    })}</ul>
+    <div className="cabinet-tag"><div><strong>OUT OF SERVICE tag</strong><small>{s.safety.tagged?'Attached to Press A':s.safety.tagHeld?'In your inventory':'On the cabinet hook'}</small></div>
+      {!s.safety.tagged&&!s.safety.tagHeld&&<button onClick={tag}>Collect tag</button>}
+    </div>
+  </Sheet>;
 }
 
-const details:Record<string,string>={
+const details:Partial<Record<Part,string>>={
   front:'Check the faceplate, fasteners, and exposed housing.',
   rear:'The rear cover and its ventilation panel are in place.',
   left:'The left frame is seated and its visible fasteners are intact.',
@@ -101,63 +72,75 @@ const details:Record<string,string>={
   guard:'The guard is seated and the tooling area is clear.',
 };
 
-export function InspectionFocus({s,act,close}:Props) {
+export function InspectionFocus({s,act,close,cabinet}:Props&{cabinet:()=>void}) {
   const target=s.focus?.target;
   if(!target) return null;
   if(isGear(target)) {
     const item=gear[target], worn=s.safety.ppe.includes(target);
+    const replacing=s.safety.ppe.some(id=>id!==target&&gear[id].slot===item.slot);
     return <aside className="focus-card gear-focus" aria-label="Equipment close-up">
-      <div><div className="record-label">CABINET / {worn?(item.sound?'WORN':'WORN / REPLACE'):item.sound?'READY TO FIT':'DO NOT USE'}</div><h2>{item.name}</h2><p>{item.detail}</p></div>
+      <div><div className="record-label">CABINET / {worn?(item.sound?'EQUIPPED':'EQUIPPED / REPLACE'):item.sound?'READY TO FIT':'DAMAGED / DO NOT USE'}</div><h2>{item.name}</h2><p>{item.detail}</p></div>
       <div className="focus-actions">
-        <button className="focus-wear" onClick={()=>act(()=>gearAction(s,target))}>{worn?'Remove':'Wear'}</button>
-        <button onClick={close}>{item.sound?'Step back':'Return to shelf'}</button>
+        <button className="focus-wear" onClick={()=>act(()=>gearAction(s,target))}>{worn?'Unequip':replacing?'Replace':'Equip'}</button>
+        <button onClick={cabinet}>Cabinet</button>
       </div>
     </aside>;
   }
   const [press,part]=machinePart(target)!;
   const detail=part==='status'?
     (press==='a'?!s.stoppedA:s.pressMode!=='idle')?'Machine is not in its initial stopped state.':'Panel confirms the training press is stopped.':
-    part==='guard'&&press==='a'?'A metal offcut is wedged beneath the displaced guard. Keep hands clear.':details[part as Part];
-  return <aside className="focus-card" aria-label="Machine close-up">
+    part==='guard'&&press==='a'?'A metal offcut is wedged beneath the displaced guard. Keep hands clear.':details[part];
+  return <aside className="focus-card" aria-label="Machine inspection">
     <div><div className="record-label">MACHINE INSPECTION</div><h2>{positions[target].name}</h2><p>{detail}</p></div>
     <button className="icon-button" aria-label="Step back from machine" onClick={close}><Icon name="close"/></button>
   </aside>;
 }
 
-export function FilmOverlay({s,skip}:{s:Session;skip:()=>void}) {
-  const f=s.film!, stage=filmStage(s);
-  if(stage==='near-quiet') return null;
-  if(stage==='near-horn' && f.kind==='near') {
-    const side=(f.side===1)===(f.curb===ROAD.near)?'right':'left';
-    return <div className="film near-flash"><div className="film-caption" role="status"><Icon name="warning"/> <strong>Truck air horn · {side}</strong></div></div>;
+export function FilmOverlay({s,next,skip}:{s:Session;next:()=>void;skip:()=>void}) {
+  const f=s.film!, stage=filmStage(s), ready=canContinue(f);
+  const continueButton=<button className="text-button film-next" disabled={!ready} onClick={next}>Continue <Icon name="arrow" size={17}/></button>;
+  const replaySkip=s.seenFilms.has(f.kind) && <button className="text-button film-skip" onClick={skip}>Skip scene</button>;
+  if(stage==='near-quiet'||stage==='near-horn') {
+    const side=f.kind==='near'&&(f.side===1)===(f.curb===ROAD.near)?'right':'left';
+    return <div className={'film '+(stage==='near-horn'?'near-flash':'anticipation')}>
+      <div className="film-caption" role="status"><Icon name="warning"/> <strong>{stage==='near-horn'?'Truck air horn · '+side:'Heavy engine approaching'}</strong>{replaySkip}</div>
+    </div>;
   }
-  if(stage==='machine-danger') return <div className="film near-flash"><div className="film-caption"><Icon name="warning"/> <strong>{f.kind==='failure'&&f.reason==='reach'?'Mechanical strain':'Unsafe start'}</strong></div></div>;
+  if(stage==='machine-tension'||stage==='machine-danger') {
+    const reaching=f.kind==='failure'&&f.reason==='reach';
+    const caption=reaching?(stage==='machine-tension'?'The press shudders.':'The ram drops.'):'The start circuit is unsafe.';
+    return <div className={'film '+(stage==='machine-danger'?'near-flash':'anticipation')}><div className="film-caption"><Icon name="warning"/> <strong>{caption}</strong>{replaySkip}</div></div>;
+  }
   if(stage==='near-black'||stage==='machine-black') {
-    const road=f.kind==='near', reach=f.kind==='failure'&&f.reason==='reach';
-    const title=road?'That was dangerous.':reach?'Keep hands out of the tooling.':'The press wasn’t ready.';
+    const reach=f.kind==='failure'&&f.reason==='reach';
+    const title=f.kind==='near'?'That was dangerous.':reach?'Never reach into malfunctioning machinery.':'The press wasn’t ready.';
     const line=f.kind==='near'?(f.unchecked?'Check both directions and wait for a clear road.':'Always use the designated pedestrian crossing.'):
       reach?'Stop, report, and follow authorized isolation procedures.':'Verify stopped status, all four sides, and the guard before starting.';
-    return <div className="film black"><div className="film-message"><Icon name="warning" size={34}/><h2>{title}</h2><p>{line}</p>
-      <button className="text-button" onClick={skip}>Return to checkpoint <Icon name="arrow" size={17}/></button></div></div>;
+    return <div className="film black" role="dialog" aria-label="Safety feedback"><div className="film-message"><Icon name="warning" size={34}/><h2>{title}</h2><p>{line}</p>{continueButton}</div></div>;
   }
-  if(stage==='incident-glitch') return <div className="film glitch"><b>WORKSTATION CONNECTION LOST</b></div>;
   const audit=f.kind==='audit';
-  const flagged=inaccurateRecords(s.safety).map(p=>'Press '+p.toUpperCase()).join(' and ');
-  if(stage.endsWith('intro') || stage.endsWith('close')) {
-    const title=stage==='incident-intro'?'ONE WEEK LATER':stage==='incident-close'?'Think before you click.':
-      stage==='audit-intro'?'END OF SHIFT REVIEW':'Review '+flagged;
-    return <div className="film black"><div className="film-message"><span className="eyebrow">THE TRAINING WORKS</span><h2>{title}</h2>
-      {stage==='audit-close'&&<p>Compare the entries with your actual work. Your completed work is saved.</p>}
-      <button className="text-button" onClick={skip}>{stage.endsWith('close')?'Return to the factory':'Skip scene'} <Icon name="arrow" size={17}/></button></div></div>;
+  const issues=audit?recordIssues(s.safety):[];
+  const flagged=[...new Set(issues.map(issue=>recordName(issue.page)))].join(' and ');
+  if(stage==='office-intro'||stage==='office-close') {
+    const title=stage==='office-intro'?(audit?'END OF SHIFT REVIEW':'ONE WEEK LATER…'):(audit?'Review '+flagged:'Think before you click.');
+    return <div className="film black" key={stage} role="dialog" aria-label="Office briefing">
+      <div className="film-message"><span className="eyebrow">THE TRAINING WORKS</span><h2>{title}</h2>
+        {stage==='office-close'&&<p>{audit?'Compare the entries with your actual work. Your completed work is saved.':'Check the sender and report unexpected attachments to IT Support.'}</p>}
+        {continueButton}{stage==='office-intro'&&replaySkip}
+      </div>
+    </div>;
   }
-  const staff=stage.endsWith('staff'), speaker=staff?(audit?'TRAINING SUPERVISOR':'IT RESPONSE'):'CEO';
-  const dialogue=audit?(staff?`${flagged} needs review. Recheck the work and correct the inspection form before you submit it again.`:
-    'These forms don’t match what happened on the floor. We rely on these records to know which equipment is safe to use.'):
-    staff?'We traced it to the fake audit email. IT is isolating the affected systems.':
-    stage.endsWith('last')?'Next time, report a suspicious message before opening its attachment.':'The training files are locked. Who opened the attachment?';
-  return <div className="film incident"><div className="letterbox"/><div className="film-caption">
+  const staff=stage==='office-staff';
+  const speaker=staff?(audit?'ENGINEERING':'IT SUPPORT'):'OPERATIONS MANAGER';
+  const dialogue=audit?(staff?'This report shows where the record and the work differ. Accurate records tell the next shift which machines are safe to use.':
+    'The inspection records need a second look. Engineering found gaps between the checks you marked and the work on the floor.'):
+    staff?'The attachment came from a fake sender. It locked shared training files, and we had to isolate the workstation.':
+    'We lost access to our training files after an unexpected attachment was opened. IT Support traced the incident to this workstation.';
+  return <div className="film incident" key={stage}><div className="letterbox"/><div className="film-caption">
     <span className="eyebrow">{speaker}</span><strong>{dialogue}</strong>
-    <button className="text-button" onClick={skip}>Skip scene <Icon name="arrow" size={16}/></button>
+    {staff&&audit&&<div className="audit-report" aria-label="Inspection discrepancies">{issues.map(issue=><div key={issue.page+issue.label}><b>{recordName(issue.page)}</b><span>{issue.label}</span><em>{issue.reason}</em></div>)}</div>}
+    {staff&&!audit&&<div className="incident-report">SHARED FILES LOCKED · WORKSTATION ISOLATED</div>}
+    {continueButton}{replaySkip}
   </div></div>;
 }
 
