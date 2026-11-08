@@ -1,39 +1,87 @@
 export type Point = [number, number];
+export type Vec = [number, number, number];
 export type Rect = [number, number, number, number];
-export type Target = 'crossing' | 'arrival' | 'door' | 'ppe' | 'checklist' | 'mail' | 'a' | 'al' | 'ar' | 'b' | 'bl' | 'br';
+export const pressParts = ['front','rear','left','right','guard','status','start','stop','tag','reach'] as const;
+export type Part = typeof pressParts[number];
+export type Press = 'a' | 'b';
+
+export const gear = {
+  glasses: {name:'Safety glasses', slot:'eyes', sound:true, anchor:[5.94,1.94,-4.36], detail:'Clear lenses and an intact frame.'},
+  scratched: {name:'Scratched safety glasses', slot:'eyes', sound:false, anchor:[5.94,1.19,-4.36], detail:'A deep scratch crosses the lens. Return these and choose a clear pair.'},
+  hearing: {name:'Hearing protection', slot:'ears', sound:true, anchor:[6.9,1.96,-4.36], detail:'The band is intact and both seals are present.'},
+  broken: {name:'Damaged hearing protection', slot:'ears', sound:false, anchor:[6.9,1.23,-4.36], detail:'The band is split and a cushion is missing. Choose the intact defenders.'},
+  boots: {name:'Safety boots', slot:'feet', sound:true, anchor:[7.86,1.94,-4.36], detail:'The sturdy pair has reinforced toes and intact soles.'},
+  sneakers: {name:'Canvas shoes', slot:'feet', sound:false, anchor:[7.86,1.17,-4.36], detail:'Soft canvas shoes lack reinforced toes. The training bay requires safety footwear.'},
+} satisfies Record<string,{name:string;slot:'eyes'|'ears'|'feet';sound:boolean;anchor:Vec;detail:string}>;
+export type Gear = keyof typeof gear;
+export type Target = 'crossing' | 'arrival' | 'door' | 'ppe' | 'clipboard' | 'tag' | 'mail' | Gear | `${Press}-${Part}`;
 
 export const START: Point = [0, 22.7];
 export const PRESS: Point = [-4.8, -7.2];
 export const DESK: Point = [7.6, -9.65];
-export const ROAD = { near: 15.55, far: 7.25, width: 1.85 };
-export const positions: Record<Target, { point: Point; anchor: [number, number, number]; name: string; reach: number }> = {
-  crossing: { point: [0, 16.55], anchor: [0, 1.02, 15.8], name: 'Zebra crossing', reach: 2.5 },
-  arrival: { point: [0, 5.75], anchor: [0, 1.25, 6.3], name: 'Cross to the forecourt', reach: 1 },
-  door: { point: [0, 1.45], anchor: [0, 2.05, .24], name: 'Training center entrance', reach: 2.15 },
-  ppe: { point: [6.9, -2.35], anchor: [6.9, 2.28, -4.85], name: 'PPE station', reach: 1.55 },
-  checklist: { point: [-8.5, -4.6], anchor: [-8.5, 2.45, -6.1], name: 'Safety checklist', reach: 1.65 },
-  a: { point: [-7.65, -8.95], anchor: [-7.65, 2.65, -11.55], name: 'Press A controls', reach: 1.35 },
-  al: { point: [-9.55, -12.05], anchor: [-9.15, 1.8, -11.95], name: 'Press A left side', reach: 1.4 },
-  ar: { point: [-5.75, -12.05], anchor: [-6.15, 1.8, -11.95], name: 'Press A right side', reach: 1.4 },
-  b: { point: [-1.95, -8.95], anchor: [-1.95, 2.65, -11.55], name: 'Press B controls', reach: 1.35 },
-  bl: { point: [-3.85, -12.05], anchor: [-3.45, 1.8, -11.95], name: 'Press B left side', reach: 1.4 },
-  br: { point: [-.05, -12.05], anchor: [-.45, 1.8, -11.95], name: 'Press B right side', reach: 1.4 },
-  mail: { point: DESK, anchor: [7.6, 2.1, -11.15], name: 'Workstation', reach: 1.45 },
+export const ROAD = { near: 15.55, far: 7.25, width: 1.85, lanes: [13.7,9.2] as const };
+export const PRESS_Z = -12.18;
+export const pressX: Record<Press,number> = {a:-7.65,b:-1.95};
+type Destination = { point:Point; anchor:Vec; name:string; reach:number; hit?:Vec };
+export const positions = {
+  crossing: {point:[0,16.45],anchor:[0,1.02,15.8],name:'Zebra crossing',reach:.45,hit:[3.5,1.5,.4]},
+  arrival: {point:[0,5.75],anchor:[0,1.25,6.3],name:'Cross the road',reach:.5,hit:[2.8,1.5,.4]},
+  door: {point:[0,1.45],anchor:[0,2.05,.24],name:'Training center entrance',reach:1.5,hit:[3.5,2.85,.8]},
+  ppe: {point:[6.9,-.70],anchor:[6.9,2.47,-4.58],name:'PPE station',reach:.42,hit:[2.8,.38,.25]},
+  clipboard: {point:[4.52,-5.12],anchor:[4.52,1.26,-6.06],name:'Take clipboard',reach:.65,hit:[.5,.55,.35]},
+  tag: {point:[8.78,-3.27],anchor:[8.78,1.74,-4.41],name:'Take out-of-service tag',reach:.75,hit:[.46,.49,.3]},
+  mail: {point:DESK,anchor:[7.6,2.1,-11.15],name:'Workstation',reach:1.45,hit:[2.7,1.95,.83]},
+} as Record<Target,Destination>;
+
+for(const [id,item] of Object.entries(gear)) {
+  positions[id as Gear]={point:[item.anchor[0],-3.31],anchor:item.anchor,name:item.name,reach:.72,hit:[.65,.51,.44]};
+}
+const partLabels: Record<Part,string> = {
+  front:'Front housing',rear:'Rear panel',left:'Left frame',right:'Right frame',guard:'Tooling guard',
+  status:'Status display',start:'START',stop:'STOP',tag:'Tag hook',reach:'Lodged offcut',
 };
+const parts:Record<Part,{point:Point; anchor:Vec; hit:Vec}> = {
+  front:{point:[0,2.65],anchor:[-.48,2.95,1.24],hit:[.8,.42,.23]},
+  rear:{point:[0,-2.14],anchor:[0,2.08,-1.13],hit:[.8,.65,.32]},
+  left:{point:[-2.08,0],anchor:[-1.2,2.1,0],hit:[.29,.68,.65]},
+  right:{point:[2.08,0],anchor:[1.2,2.1,0],hit:[.29,.68,.65]},
+  guard:{point:[-.34,2.25],anchor:[-.26,1.96,.83],hit:[.44,.39,.27]},
+  status:{point:[.79,2.16],anchor:[.86,2.34,1.18],hit:[.54,.27,.19]},
+  start:{point:[.8,2.12],anchor:[.91,1.81,1.23],hit:[.32,.26,.24]},
+  stop:{point:[.8,2.12],anchor:[.91,1.33,1.24],hit:[.35,.28,.24]},
+  tag:{point:[-.92,2.16],anchor:[-.95,1.35,1.24],hit:[.39,.34,.24]},
+  reach:{point:[.05,2.12],anchor:[.32,1.44,.83],hit:[.36,.31,.28]},
+};
+for(const press of ['a','b'] as const) {
+  for(const part of pressParts) {
+    if(press==='b' && (part==='tag'||part==='reach')) continue;
+    const {point,anchor,hit}=parts[part];
+    positions[`${press}-${part}`]={
+      point:[pressX[press]+point[0],PRESS_Z+point[1]],
+      anchor:[pressX[press]+anchor[0],anchor[1],PRESS_Z+anchor[2]],
+      name:`Press ${press.toUpperCase()} · ${partLabels[part]}`,
+      reach:part==='front'?1.0:.6,hit,
+    };
+  }
+}
+export function machinePart(target:Target): [Press,Part] | null {
+  return target.startsWith('a-')||target.startsWith('b-') ? target.split('-') as [Press,Part] : null;
+}
+export const isGear = (target:Target): target is Gear => Object.hasOwn(gear,target);
+
 
 export const walls: Rect[] = [
   [-12, -1.65, -.36, .39], [1.65, 12, -.36, .39],
   [-12, -11.55, -19.4, 0], [11.55, 12, -19.4, 0],
-  [-12, 6.15, -19.75, -19.25], [8.7, 12, -19.75, -19.25],
-  [3.7, 4.15, -28, -19.4], [11.55, 12, -28, -19.4], [3.7, 12, -28.3, -27.85],
+  [-12, 12, -19.75, -19.25],
 ];
 
 export const props: Rect[] = [
   [-9.02,-6.28,-13.45,-10.98], [-3.32,-.58,-13.45,-10.98],
-  [5.35,8.45,-5.75,-4.66], [-10.27,-6.74,-6.55,-5.88],
+  [5.35,8.45,-5.75,-4.66], [.58,4.12,-7.96,-7.58],
   [5.84,9.32,-12.15,-10.68], [10.05,11.52,-16.9,-13.55],
-  [-11.55,-9.75,-18.6,-15.1], [-5.9,1.05,-18.7,-17.65], [8.96,11.1,-18.65,-17.68],
-  [5.7,10.8,-26.9,-25.05], [4.05,5.15,-24.1,-21.5],
+  [-5.9,1.05,-18.7,-17.65], [8.96,11.1,-18.65,-17.68],
+  [4.05,4.99,-6.58,-5.86],
   [-20,-15.3,1.75,4.55], [14.15,18.35,2.35,5.45], [18.85,22.6,1.6,4.6],
   [-7.4,-3.8,19.6,21.75], [3.9,7.5,19.65,21.75],
   [-12,-9.2,17.15,19.6], [6.4,9.8,2.15,3.3], [-9.8,-6.4,2.15,3.3],
@@ -53,13 +101,9 @@ const doorBarrier: Rect = [-1.7,1.7,-.28,.4];
 
 export function solid(p: Point, doorOpen: boolean) {
   const [x,z] = p;
-  return Math.abs(x)>23.7 || z>26.6 || z< -27.55 ||
+  return Math.abs(x)>23.7 || z>26.6 || z< -19.24 ||
     walls.some(rect => inRect(p,rect)) || props.some(rect => inRect(p,rect)) ||
     (!doorOpen && inRect(p,doorBarrier));
-}
-
-export function allowed(p: Point, doorOpen: boolean, cleared: boolean) {
-  return !solid(p,doorOpen) && (!onRoad(p) || (cleared && inCrossing(p)));
 }
 
 const step = .5, cols = 97, rows = 111;
@@ -83,12 +127,10 @@ function intersects(a: Point, b: Point, [x0,x1,z0,z1]: Rect) {
   return true;
 }
 
-export function route(from: Point, to: Point, doorOpen: boolean, cleared: boolean): Point[] | null {
-  const pass=(p:Point)=>allowed(p,doorOpen,cleared);
+export function route(from: Point, to: Point, doorOpen: boolean): Point[] | null {
+  const pass=(p:Point)=>!solid(p,doorOpen);
   const solidRects=doorOpen?[...walls,...props]:[...walls,...props,doorBarrier];
   const blocked:Rect[]=solidRects.map(([x0,x1,z0,z1])=>[x0-pad,x1+pad,z0-pad,z1+pad]);
-  if(cleared) blocked.push([-24,-ROAD.width,ROAD.far,ROAD.near],[ROAD.width,24,ROAD.far,ROAD.near]);
-  else blocked.push([-24,24,ROAD.far,ROAD.near]);
   const lineClear=(a:Point,b:Point)=>pass(b) && !blocked.some(rect=>intersects(a,b,rect));
   if (!pass(to)) return null;
   if (lineClear(from,to)) return [to];
@@ -141,4 +183,3 @@ export function route(from: Point, to: Point, doorOpen: boolean, cleared: boolea
   }
   return null;
 }
-
