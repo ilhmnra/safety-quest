@@ -363,13 +363,13 @@ function Office({s}:{s:Session}) {
     arm.current!.rotation.x=-.16-talk;
     const opening=f.beat>=2?T.MathUtils.smoothstep(t,.14,1.55):0;
     report.current!.rotation.x=audit?.60-opening*.66:1.31-opening*1.44;
-    report.current!.position.y=audit?1.01+opening*.28:1.28;
+    report.current!.position.y=audit?.94+opening*.16:1.09;
   });
   return <group position={[0,0,OFFICE_SHIFT]}>
     <Batch boxes={officeArchitecture}/>
     <pointLight position={[8,3.85,-23.4]} distance={11} intensity={42} color="#ffe0b1"/>
     <Sign position={[8.1,3.2,-27.626]} w={5.52} h={1.58} title="OPERATIONS" sub="THE TRAINING WORKS   /   INTERNAL BRIEFING"/>
-    <Sign position={[6.37,1.20,-23.372]} w={1.48} h={.15} title="OPERATIONS MANAGER" sub="FACTORY OPERATIONS"/>
+    <Sign position={[6.37,1.20,-23.37]} w={1.10} h={.18} title="OPERATIONS MANAGER" sub="FACTORY OPERATIONS"/>
     <group position={[6.44,.1,-25.05]} rotation-y={.045}>
       <Batch boxes={manager} shadows={false}/>
       <group position={[.39,1.47,0]} ref={arm}>
@@ -381,13 +381,13 @@ function Office({s}:{s:Session}) {
     </group>
     <group position={[9.16,.1,-25.18]} rotation-y={-.12}>
       <Batch boxes={audit?engineering:support} shadows={false}/>
-      <Sign position={[.19,1.50,.23]} w={.33} h={.107} title={audit?'ENGINEERING':'IT SUPPORT'} sub="WORKS STAFF"/>
+      <Sign position={[-.22,1.50,.234]} w={.32} h={.105} title={audit?'ENGINEERING':'IT SUPPORT'} sub="WORKS STAFF"/>
       {[-1,1].map(side=><group key={side} position={[side*.39,1.19,.09]} rotation-x={-.38}>
         <GlowingBox position={[0,-.07,.11]} size={[.19,.42,.2]} color={uniform[role]}/>
         <GlowingBox position={[0,-.14,.24]} size={[.155,.19,.15]} color={skin[role]}/>
       </group>)}
-      {!audit&&<GlowingBox position={[0,1.29,.5]} size={[.64,.072,.43]} color={ink}/>}
-      <group ref={report} position={[0,1.28,.36]}>
+      {!audit&&<GlowingBox position={[.13,1.09,.5]} size={[.64,.072,.43]} color={ink}/>}
+      <group ref={report} position={[.13,1.09,.36]}>
         {audit?<>
           <group position={[0,.23,.064]} scale={[1.27,1.15,1]}><Batch boxes={boardBoxes} shadows={false}/></group>
           <Sign position={[0,.29,.103]} w={.42} h={.17} title="INSPECTION REPORT" sub="DISCREPANCY FOUND"/>
@@ -579,9 +579,9 @@ function Runner({session:s,keys,markers,update,touch,monitor,compact}:Props) {
       const staff=f.beat>=2;
       const move=T.MathUtils.smoothstep(f.time,0,2);
       x=staff?8.97:6.47;
-      z=(staff?-22.66-move*.22:-22.22-move*.24)+OFFICE_SHIFT;
-      y=1.74;
-      yaw=staff?-.06:.015;pitch=-.027;
+      z=(staff?-22.66-move*.22:-21.28-move*.24)+OFFICE_SHIFT;
+      y=staff?1.74:1.69;
+      yaw=staff?-.06:.015;pitch=staff?-.027:-.078;
     }
     const direct=Math.hypot(m.x-x,m.z-z)>12 || (changed && Math.hypot(m.x-x,m.z-z)>1.5);
     const rate=s.settings.reduced?22:f?.kind==='near'?4.9:f?.kind==='audit'||f?.kind==='incident'?2.9:s.panel==='mail'?6:10;

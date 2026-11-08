@@ -444,6 +444,7 @@ kbd{padding:4px 5px;border:1px solid #b7cab56b;border-radius:3px;font:700 9px/1 
 /* Readable beats and a restrained ending reveal */
 .film.black{animation:fade-in .78s ease-out}
 .film.incident .film-caption{animation:crt-focus .40s ease-out}
+.film.incident .film-caption>strong{display:block}
 .film-caption .film-next,.film-caption .film-skip,.film-message .film-next,.film-message .film-skip{pointer-events:auto;display:inline-flex;justify-content:center;gap:7px;margin:8px 4px 0;min-height:39px;padding:6px 13px;border:1px solid #9eb7a67e;border-radius:4px;background:#21383a;color:#f0d79d}
 .film-next:disabled{opacity:.42}
 .anticipation .film-caption{display:flex;align-items:center;gap:8px;justify-content:center;border-color:#baab7d83}
