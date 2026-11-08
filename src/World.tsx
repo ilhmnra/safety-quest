@@ -5,7 +5,7 @@ import * as T from 'three';
 import { architecture, officeArchitecture, press, truck, person, skin, uniform, type Box, ink, steel, amber, ochre, lamp, alert, tealLamp, cream, slate } from './models';
 import { distance, gear, isGear, machinePart, onRoad, positions, PREP_TABLE, PRESS_Z, ROAD, pressX, props, route, walls, type Gear, type Point, type Press, type Target } from './map';
 import { hasMail, nearCrossing, objective, observed, usingCrossing, type Session } from './state';
-import { filmStage, OFFICE_SHIFT, REACH_CUT, REACH_JOLT, ROAD_REACTION_DELAY } from './cinematics';
+import { filmStage, OFFICE_SHIFT, PPE_CUES, ppeBeat, REACH_CUT, REACH_JOLT, ROAD_IMPACT_LEAD, ROAD_REACTION_DELAY } from './cinematics';
 import { encounterTruck, fromSouth, truckMotion } from './traffic';
 import { audioStatus, play, setAudioLevel, unlock, updateAmbience } from './audio';
 import { angleDelta, navigate, nearest, observeView, openNearby, say, targetAvailable, tick, turnTo, walkingRoute } from './engine';
@@ -292,6 +292,66 @@ function HeldProps({s}:{s:Session}) {
   return <>
     <group ref={hand} visible={false}><Batch boxes={handBoxes} shadows={false}/></group>
     <group ref={sparks} visible={false}>{injuryPixels.map((bit,i)=><GlowingBox key={i} position={bit} size={[.017,.014,.02]} color={i%2===0?"#b74739":"#8f3631"}/>)}</group>
+  </>;
+}
+
+const gearTeeth:Box[]=Array.from({length:12},(_,i)=>{
+  const angle=i*Math.PI/6;
+  return [Math.sin(angle)*.34,0,Math.cos(angle)*.34,.115,.105,.135,'#748283',angle];
+});
+const fragmentShapes=Array.from({length:15},(_,i)=>({
+  x:Math.sin(i*2.39)*(.38+i*.04),y:Math.cos(i*2.39)*(.32+i*.04),scale:.018+(i%4)*.011,
+}));
+
+function PpeEffects({s}:{s:Session}) {
+  const feet=useRef<T.Group>(null), shoe=useRef<T.Group>(null), falling=useRef<T.Group>(null), blood=useRef<T.Group>(null);
+  const debris=useRef<T.Group>(null), flash=useRef<T.PointLight>(null);
+  const canvas=s.film?.kind==='ppe'&&s.film.footwear==='canvas';
+  const footTone=canvas?'#ab9272':'#c39a80';
+  useFrame(({camera})=>{
+    const film=s.film, beat=ppeBeat(film);
+    if(film?.kind!=='ppe') return;
+    const yaw=turnTo(s.pos,[pressX[film.press],PRESS_Z]);
+    const foot=feet.current!, metal=falling.current!;
+    foot.visible=beat?.slot==='feet';
+    if(foot.visible&&beat) {
+      foot.position.set(s.pos[0]-Math.sin(yaw)*1.05,.126,s.pos[1]-Math.cos(yaw)*1.05);
+      foot.rotation.y=yaw;
+      const fall=T.MathUtils.clamp((beat.time-.10)/(PPE_CUES.feet-.10),0,1);
+      metal.position.set(.04,T.MathUtils.lerp(2.08,.10,fall**2),-.22);
+      metal.rotation.set(.47*(1-fall),beat.time*4,.31*(1-fall));
+      shoe.current!.scale.y=T.MathUtils.lerp(1,.27,T.MathUtils.smoothstep(beat.time,PPE_CUES.feet-.025,PPE_CUES.feet+.10));
+      blood.current!.visible=beat.time>=PPE_CUES.feet&&beat.time<PPE_CUES.feet+.48;
+    }
+    const burst=debris.current!;
+    const age=beat?.slot==='eyes'?beat.time-PPE_CUES.eyes:-1;
+    burst.visible=age>=0&&age<.62;
+    const sourceX=pressX[film.press]+Math.sin(yaw)*1.30,sourceZ=PRESS_Z+Math.cos(yaw)*1.30;
+    flash.current!.position.set(sourceX,1.48,sourceZ);
+    flash.current!.intensity=burst.visible&&!s.settings.reduced?12*(1-Math.min(1,age/.17)):0;
+    if(burst.visible) burst.children.forEach((bit,i)=>{
+      const fragment=fragmentShapes[i],flight=T.MathUtils.clamp(age/(.36+(i%5)*.06),0,1);
+      bit.visible=flight<1;
+      bit.position.set(T.MathUtils.lerp(sourceX,camera.position.x+fragment.x,flight),T.MathUtils.lerp(1.48,camera.position.y+fragment.y,flight),T.MathUtils.lerp(sourceZ,camera.position.z,flight));
+      bit.rotation.set(age*9+i,age*11,age*8+i);
+    });
+  });
+  return <>
+    <group ref={feet} visible={false}>
+      <group ref={shoe} position={[.13,0,0]}>
+        <GlowingBox position={[0,.058,.14]} size={[.24,.116,.52]} color={footTone}/>
+        {canvas&&<GlowingBox position={[0,.015,.13]} size={[.25,.030,.54]} color="#3c3731"/>}
+        <GlowingBox position={[0,.15,.34]} size={[.17,.23,.15]} color="#506364"/>
+      </group>
+      <group ref={falling}><mesh geometry={tireGeometry} scale={[.91,.40,.91]} material={material('#4e6064')}/><Batch boxes={gearTeeth} shadows={false}/>
+        <mesh geometry={hubGeometry} position={[0,.09,0]} material={material('#9ba7a0')}/>
+      </group>
+      <group ref={blood} visible={false}>
+        {[[-.21,.16],[.29,.29],[.39,.13],[.24,.40],[.44,.25]].map(([x,z],i)=><GlowingBox key={i} position={[x,.013,z]} size={[.039,.018,.035]} color={i%2?'#a9443e':'#c15c4a'}/>)}
+      </group>
+    </group>
+    <group ref={debris} visible={false}>{fragmentShapes.map(({scale},i)=><mesh key={i} geometry={cube} scale={[scale,scale*.58,scale*1.5]} material={material(i%4===0?lamp:'#a4a99c')}/>)}</group>
+    <pointLight ref={flash} intensity={0} distance={5} color="#ffc584"/>
   </>;
 }
 
@@ -627,6 +687,15 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper}:Props) {
       if(!s.settings.reduced) {
         z+=(f.curb===ROAD.near?-1:1)*T.MathUtils.smoothstep(f.time,.4,2.5)*.44;
         y+=.02*Math.sin(f.time*7)*Math.min(f.time,1);
+        if(f.time>=f.cut-ROAD_IMPACT_LEAD) pitch-=.23*T.MathUtils.smoothstep(f.time,f.cut-ROAD_IMPACT_LEAD,f.cut);
+      }
+    } else if(f?.kind==='ppe') {
+      const beat=ppeBeat(f);
+      yaw=turnTo(s.pos,[pressX[f.press],PRESS_Z]);
+      pitch=beat?.slot==='feet'?T.MathUtils.lerp(-.26,-.88,T.MathUtils.smoothstep(beat.time,.07,.61)):-.07;
+      if(beat&&!s.settings.reduced&&beat.time>=PPE_CUES[beat.slot]) {
+        const age=beat.time-PPE_CUES[beat.slot];
+        y+=Math.sin(age*32)*Math.max(0,.06-age*.17);
       }
     } else if(f?.kind==='failure' && f.reason==='reach') {
       const [ax,ay,az]=positions['a-reach'].anchor;
@@ -706,7 +775,7 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper}:Props) {
     }
     if(audio.elapsed>=.09) {
       audio.elapsed=0;
-      const active=s.started&&!s.panel&&filmStage(s)!=='near-black'&&filmStage(s)!=='machine-black'&&f?.kind!=='incident'&&f?.kind!=='audit';
+      const active=s.started&&!s.panel&&filmStage(s)!=='near-black'&&filmStage(s)!=='machine-black'&&f?.kind!=='incident'&&f?.kind!=='audit'&&f?.kind!=='ppe';
       updateAmbience(active,s.pos[1]>0,([0,1] as const).map(lane=>{
         const truck=f?.kind==='near'&&lane===(f.side===1?0:1)?encounterTruck(s)!:truckMotion(s,lane);
         const p:[number,number]=[truck.x,truck.z];
@@ -794,6 +863,7 @@ function Stage(props:Props & {high:boolean}) {
     <Machines s={s}/>
     <Preparation s={s}/>
     <HeldProps s={s}/>
+    {s.film?.kind==='ppe'&&<PpeEffects s={s}/>}
     {office&&<Office s={s}/> }
     <Sign position={[0,3.69,.769]} w={9.97} h={1.16} title="SAFETY TRAINING CENTER" sub="THE TRAINING WORKS   /   VISITOR ENTRANCE" kind="main"/>
     <Sign position={[-10.6,2.16,19.65]} w={2.34} h={.6} title="SECURITY" sub="VISITOR CHECK-IN"/>

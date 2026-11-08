@@ -1,7 +1,7 @@
 import { Action, Icon, Sheet } from './components';
 import { gear, isGear, machinePart, positions, ROAD, type Gear, type Part } from './map';
 import { checklist, preparationRows, recordIssues, recordName, type PortfolioTab, type Session } from './state';
-import { filmStage } from './cinematics';
+import { filmStage, PPE_CUES, ppeBeat } from './cinematics';
 import { gearAction, markPreparation, markRecord, reviewRecords } from './engine';
 import { play } from './audio';
 import type { RefObject } from 'react';
@@ -72,7 +72,7 @@ const details:Partial<Record<Part,string>>={
   guard:'The guard is seated and the tooling area is clear.',
 };
 
-export function InspectionFocus({s,act,close,cabinet}:Props&{cabinet:()=>void}) {
+export function InspectionFocus({s,act,close}:Props) {
   const target=s.focus?.target;
   if(!target) return null;
   if(isGear(target)) {
@@ -82,7 +82,7 @@ export function InspectionFocus({s,act,close,cabinet}:Props&{cabinet:()=>void}) 
       <div><div className="record-label">CABINET / {worn?(item.sound?'EQUIPPED':'EQUIPPED / REPLACE'):item.sound?'READY TO FIT':'DAMAGED / DO NOT USE'}</div><h2>{item.name}</h2><p>{item.detail}</p></div>
       <div className="focus-actions">
         <button className="focus-wear" onClick={()=>act(()=>gearAction(s,target))}>{worn?'Unequip':replacing?'Replace':'Equip'}</button>
-        <button onClick={cabinet}>Back</button>
+        <button onClick={close}>Back</button>
       </div>
     </aside>;
   }
@@ -100,6 +100,24 @@ export function FilmOverlay({s,next,skip}:{s:Session;next:()=>void;skip:()=>void
   const f=s.film!, stage=filmStage(s);
   const continueButton=<button className="text-button film-next" onClick={next}>Continue <Icon name="arrow" size={17}/></button>;
   const replaySkip=s.seenFilms.has(f.kind) && <button className="text-button film-skip" onClick={skip}>Skip scene</button>;
+  if(f.kind==='ppe') {
+    const beat=ppeBeat(f);
+    if(!beat) {
+      const remedies={feet:'Wear suitable safety footwear.',eyes:'Replace damaged eye protection and put it on before entering.',ears:'Wear intact hearing protection in the press bay.'};
+      return <div className="film black" role="dialog" aria-label="PPE safety feedback"><div className="film-message">
+        <Icon name="warning" size={34}/><h2>Check your PPE before entering.</h2>
+        <ul className="ppe-remedies">{f.hazards.map(slot=><li key={slot}>{remedies[slot]}</li>)}</ul>
+        {continueButton}
+      </div></div>;
+    }
+    if(stage==='ppe-fade') return <div className="film ppe-fade" aria-hidden="true"/>;
+    const hit=beat.time>=PPE_CUES[beat.slot];
+    const captions={feet:hit?'The falling gear hits your foot.':'A heavy gear comes loose.',eyes:hit?'A metal fragment hits your eye.':'The press spits metal fragments.',ears:hit?'The ringing drowns out the room.':'Machinery noise surges.'};
+    return <div key={stage} className={`film ppe-scene ppe-${beat.slot}${hit?' ppe-impact':''}`}>
+      <div className="film-caption" role="status"><Icon name="warning"/><strong>{captions[beat.slot]}</strong>{replaySkip}</div>
+    </div>;
+  }
+  if(stage==='near-impact') return <div className="film road-impact" aria-hidden="true"/>;
   if(stage==='near-quiet'||stage==='near-horn') {
     const side=f.kind==='near'&&(f.side===1)===(f.curb===ROAD.near)?'right':'left';
     return <div className={'film '+(stage==='near-horn'?'near-flash':'anticipation')}>

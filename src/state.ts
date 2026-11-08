@@ -1,4 +1,4 @@
-import { DESK, gear, PRESS, ROAD, START, type Gear, type Part, type Point, type Press, type Target } from './map';
+import { DESK, gear, ppeOrder, PRESS, ROAD, START, type Gear, type Part, type Point, type Press, type Target } from './map';
 import type { Film } from './cinematics';
 import { fromSouth, startTraffic, type TrafficSide } from './traffic';
 
@@ -52,7 +52,7 @@ export type Session = {
   focus: {target:Target; time:number} | null;
   pressPage: InspectionPage;
   controlPress: { target:Target; until:number } | null;
-  nav: { path: Point[]; target?: Target; end: Point } | null;
+  nav: { path: Point[]; target?: Target; end: Point; clearAtStart?:boolean } | null;
   film: Film | null;
   seenFilms:Set<Film["kind"]>;
   roadClear: boolean;
@@ -135,6 +135,7 @@ export function reset(s: Session) {
   save(s);
 }
 export const equipped = (s: Safety) => (['glasses','boots','hearing'] as const).every(item => s.ppe.includes(item));
+export const unsafePpe = (s:Safety) => ppeOrder.filter(slot=>!s.ppe.some(id=>gear[id].slot===slot&&gear[id].sound));
 const inspectionRows = [
   ['stopped','Verified stopped status'],
   ['front','Inspected front housing'],

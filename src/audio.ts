@@ -1,4 +1,4 @@
-type Effect='horn'|'mail'|'door'|'switch'|'cycle'|'warning'|'strain'|'impact'|'ui'|'paper'|'step';
+type Effect='horn'|'mail'|'door'|'switch'|'cycle'|'warning'|'strain'|'impact'|'shrapnel'|'hearing'|'ui'|'paper'|'step';
 type Sample='horn'|'mail';
 
 const assets={horn:'truck-air-horn.wav',mail:'youve-got-mail.wav'} as const;
@@ -14,6 +14,7 @@ let noise: AudioBuffer | undefined;
 let enabled=true, volume=.85, attempted=false, loading=false;
 let hornMediaPrimed=false, hornMediaUsed=false;
 let pending: Effect|null=null;
+let hearingEffect=false;
 const listeners=new Set<()=>void>();
 
 export function audioStatus() {
@@ -191,10 +192,18 @@ export function play(name:Effect,allow:boolean,side=0) {
     case 'warning': note(435,398,.18,.14);note(435,398,.26,.13,'triangle',.22);break;
     case 'strain': note(84,50,.68,.17,'sawtooth');grit(t+.18,.44,.13,240,out);break;
     case 'impact': note(111,31,.53,.29,'sawtooth');grit(t,.42,.31,760,out);break;
+    case 'shrapnel': note(155,45,.32,.19,'triangle');grit(t,.33,.21,2900,out,'highpass');break;
+    case 'hearing': grit(t,.48,.16,1750,out,'bandpass');grit(t+.30,.61,.095,340,out);note(1650,920,.88,.048,'sine',.08);break;
     case 'step': grit(t,.09,.21,920,out);note(95,48,.11,.105);break;
     case 'paper': grit(t,.17,.14,1450,out,'bandpass');break;
     case 'ui': note(522,370,.065,.06);break;
   }
+}
+
+export function setHearingEffect(active:boolean) {
+  if(active===hearingEffect) return;
+  hearingEffect=active;
+  if(context&&music) music.gain.setTargetAtTime(active?.002:.8,context.currentTime,.065);
 }
 
 export function updateAmbience(active:boolean,outside:boolean,trucks:readonly {distance:number;pan:number}[]) {
@@ -235,7 +244,7 @@ export function warmMusic(allow:boolean) {
   music=undefined;
   if(!context||!master||!allow||context.state!=='running') return;
   music=context.createGain();
-  music.gain.value=.8;
+  music.gain.value=hearingEffect?.002:.8;
   music.connect(master);
   const out=music, start=context.currentTime+.15;
   const phrases=[[261.63,329.63,392,440],[220,261.63,329.63,392],[174.61,220,261.63,329.63],[196,246.94,293.66,392]];

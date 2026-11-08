@@ -4,6 +4,8 @@ export type Rect = [number, number, number, number];
 export const pressParts = ['front','rear','left','right','guard','status','start','stop','tag','reach'] as const;
 export type Part = typeof pressParts[number];
 export type Press = 'a' | 'b';
+export const ppeOrder=['feet','eyes','ears'] as const;
+export type PpeSlot=typeof ppeOrder[number];
 
 export const gear = {
   glasses: {name:'Safety glasses', slot:'eyes', sound:true, anchor:[5.94,1.94,-4.36], detail:'Clear lenses and an intact frame.'},
@@ -12,7 +14,7 @@ export const gear = {
   broken: {name:'Damaged hearing protection', slot:'ears', sound:false, anchor:[6.9,1.23,-4.36], detail:'The band is split and a cushion is missing. Choose the intact defenders.'},
   boots: {name:'Safety boots', slot:'feet', sound:true, anchor:[7.86,1.94,-4.36], detail:'The sturdy pair has reinforced toes and intact soles.'},
   sneakers: {name:'Canvas shoes', slot:'feet', sound:false, anchor:[7.86,1.17,-4.36], detail:'Soft canvas shoes lack reinforced toes. The training bay requires safety footwear.'},
-} satisfies Record<string,{name:string;slot:'eyes'|'ears'|'feet';sound:boolean;anchor:Vec;detail:string}>;
+} satisfies Record<string,{name:string;slot:PpeSlot;sound:boolean;anchor:Vec;detail:string}>;
 export type Gear = keyof typeof gear;
 export type Target = 'crossing' | 'crossing-north' | 'arrival' | 'arrival-south' | 'door' | 'ppe' | 'clipboard' | 'tag' | 'mail' | Gear | `${Press}-${Part}`;
 
@@ -24,6 +26,11 @@ export const WALK_SPEED=3.3;
 export const PREP_TABLE:Point=[4.55,-4.27];
 export const PRESS_Z = -12.18;
 export const pressX: Record<Press,number> = {a:-7.65,b:-1.95};
+export function pressHazard([x,z]:Point):Press|null {
+  if(z<PRESS_Z-3.12 || z>PRESS_Z+3.52) return null;
+  const press=x<(pressX.a+pressX.b)/2?'a':'b';
+  return Math.abs(x-pressX[press])<=2.95?press:null;
+}
 type Destination = { point:Point; anchor:Vec; name:string; reach:number; hit?:Vec };
 export const positions = {
   crossing: {point:[0,16.45],anchor:[0,1.02,15.8],name:'Zebra crossing',reach:.45,hit:[3.5,1.5,.4]},

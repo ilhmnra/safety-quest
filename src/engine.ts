@@ -1,9 +1,9 @@
 import { MathUtils } from 'three';
-import { play, warmMusic } from './audio';
-import { canContinue, filmStage, REACH_CUT, REACH_JOLT } from './cinematics';
+import { play, setHearingEffect, warmMusic } from './audio';
+import { canContinue, filmStage, PPE_BEAT, PPE_CUES, PPE_FADE, ppeBeat, REACH_CUT, REACH_JOLT, ROAD_IMPACT_LEAD } from './cinematics';
 import { advanceTraffic, crossingThreat, dangerFilm, fromSouth, roadOccupied } from './traffic';
-import { DESK, distance, gear, inCrossing, isGear, machinePart, onRoad, positions, PRESS, ROAD, route, solid, START, WALK_SPEED, type Gear, type Part, type Point, type Press, type Target } from './map';
-import { equipped, hasMail, nearCrossing, observed, recordIssues, recordName, safeToStart, save, type Inspection, type PreparationCheck, type Session } from './state';
+import { DESK, distance, gear, inCrossing, isGear, machinePart, onRoad, positions, PRESS, pressHazard, ROAD, route, solid, START, WALK_SPEED, type Gear, type Part, type Point, type Press, type Target } from './map';
+import { equipped, hasMail, nearCrossing, observed, recordIssues, recordName, safeToStart, save, unsafePpe, type Inspection, type PreparationCheck, type Session } from './state';
 
 const ROAD_EDGE_BUFFER=.02;
 
@@ -29,6 +29,16 @@ function resetCrossing(s:Session) {
   s.crossingHeading=null;
   s.gaze=newGaze();
   s.gazeSelection=null;
+}
+
+function startPpeIncident(s:Session,press:Press) {
+  const hazards=unsafePpe(s.safety);
+  if(!hazards.length || s.film) return false;
+  s.nav=null;
+  s.focus=null;
+  s.look=null;
+  s.film={kind:'ppe',press,hazards,time:0,footwear:s.safety.ppe.includes('sneakers')?'canvas':'missing'};
+  return true;
 }
 
 export function turnHead(s:Session,side:'left'|'center'|'right') {
@@ -60,8 +70,10 @@ export function observeView(s:Session,yaw:number,pitch:number,dt:number) {
 export function targetAvailable(s:Session,target:Target) {
   if(target==='crossing') return s.pos[1]>ROAD.near && !s.gaze.checked;
   if(target==='crossing-north') return s.pos[1]>0 && s.pos[1]<ROAD.far && !s.gaze.checked;
-  if(target==='arrival') return s.roadClear && (s.crossingHeading===0 || s.crossingHeading===null && fromSouth(s.pos));
-  if(target==='arrival-south') return s.roadClear && (s.crossingHeading===Math.PI || s.crossingHeading===null && !fromSouth(s.pos));
+  if(target==='arrival'||target==='arrival-south') {
+    const south=target==='arrival';
+    return s.crossingHeading===null?nearCrossing(s.pos)&&fromSouth(s.pos)===south:s.crossingHeading===(south?0:Math.PI);
+  }
   if(target==='door') return s.pos[1]>-.55 && s.pos[1]<ROAD.far && !s.safety.door;
   if(s.pos[1]>-.65) return false;
   if(target==='clipboard') return !s.safety.clipboard;
@@ -125,6 +137,7 @@ export function interact(s:Session,target:Target) {
     play('ui',s.settings.sound);
   } else {
     const [press,part]=machinePart(target)!;
+    if(startPpeIncident(s,press)) return;
     if(part==='start'||part==='stop') {
       s.controlPress={target,until:s.time+.24};
       if(part==='start') startPress(s,press);
@@ -148,7 +161,8 @@ export function interact(s:Session,target:Target) {
 export function navigate(s:Session,destination:Target|Point) {
   const target=typeof destination==='string'?destination:undefined;
   const point=target?positions[target].point:destination as Point;
-  const path=walkingRoute(s,point);
+  const crossingTarget=target==='arrival'||target==='arrival-south';
+  const path=walkingRoute(s,point,crossingTarget);
   if(!path) { say(s,'There is no clear walking route there.'); return; }
   // Keep the entire approach collision-free, but stop as soon as the final leg enters interaction range.
   if(target && !['arrival','arrival-south','crossing','crossing-north'].includes(target)) {
@@ -160,13 +174,13 @@ export function navigate(s:Session,destination:Target|Point) {
   s.panel=null;
   s.focus=null;
   s.look=null;
-  s.nav={path,target,end:path[path.length-1]};
+  s.nav={path,target,end:path[path.length-1],clearAtStart:crossingTarget&&s.roadClear};
 }
 
-export function walkingRoute(s:Session,point:Point) {
+export function walkingRoute(s:Session,point:Point,crossingTarget=false) {
   const south=fromSouth(s.pos);
   const towardRoad=south?point[1]<ROAD.near:point[1]>ROAD.far;
-  if(s.roadClear && nearCrossing(s.pos) && towardRoad && inCrossing(point)) {
+  if((s.roadClear||crossingTarget) && nearCrossing(s.pos) && towardRoad && inCrossing(point)) {
     const near=positions[south?'crossing':'crossing-north'].point;
     const far=positions[south?'arrival':'arrival-south'].point;
     const first=route(s.pos,near,s.safety.door);
@@ -247,6 +261,12 @@ export function endFilm(s:Session) {
     const issues=recordIssues(s.safety);
     s.pressPage=issues[0]?.page??'a';
     say(s,'Review '+[...new Set(issues.map(issue=>recordName(issue.page)))].join(' and ')+' on your clipboard.');
+  } else if(film.kind==='ppe') {
+    setHearingEffect(false);
+    s.pos=[...PRESS];
+    s.yaw=turnTo(PRESS,positions.ppe.point);
+    s.checkpoint='press';
+    say(s,'Check your equipment at the PPE station before re-entering the press bay.');
   } else {
     s.pos=[...PRESS];
     s.checkpoint='press';
@@ -262,6 +282,7 @@ export function skipFilm(s:Session) {
   if(!film || !s.seenFilms.has(film.kind)) return;
   if(film.kind==='near') film.time=film.cut;
   else if(film.kind==='failure') film.time=film.reason==='reach'?REACH_CUT:2.55;
+  else if(film.kind==='ppe') {film.time=film.hazards.length*PPE_BEAT;setHearingEffect(false);}
   else {film.beat=3;film.time=0;}
 }
 
@@ -414,12 +435,13 @@ function roadStep(s:Session,next:Point) {
   if(!onRoad(next)) return 'go';
   if(s.roadClear && onRoad(s.pos) && s.crossingHeading!==null) return roadOccupied(s,next)?'wait':'go';
   const zebra=inCrossing(next);
-  if(zebra&&s.trafficSide&&(s.nav?.target==='arrival'||s.nav?.target==='arrival-south')) {
+  if(zebra&&s.trafficSide&&s.nav?.clearAtStart) {
     s.nav=null;
     return 'wait';
   }
   if(!zebra || !s.roadClear) {
     s.film=dangerFilm(s,next,zebra,observed(s,'left'),observed(s,'right'));
+    s.pos=next;
     s.nav=null;
     s.look=null;
     s.focus=null;
@@ -435,6 +457,7 @@ function move(s:Session,next:Point) {
   if(status==='film') return true;
   if(status==='wait') return false;
   const wasOnRoad=onRoad(s.pos);
+  const press=pressHazard(next),previousPress=pressHazard(s.pos);
   if(!wasOnRoad && onRoad(next)) s.crossingHeading=next[1]<s.pos[1]?0:Math.PI;
   s.pos=next;
   if(wasOnRoad && !onRoad(next) && s.roadClear) {
@@ -446,7 +469,7 @@ function move(s:Session,next:Point) {
     }
     resetCrossing(s);
   }
-  return false;
+  return !!press&&press!==previousPress&&startPpeIncident(s,press);
 }
 
 export function tick(s:Session,dt:number,keys:Set<string>,timelineDt=dt):boolean {
@@ -466,6 +489,15 @@ export function tick(s:Session,dt:number,keys:Set<string>,timelineDt=dt):boolean
       const spatial=-Math.sin(angleDelta(s.yaw,laneYaw));
       const roadSide=film.curb===ROAD.near?film.side:-film.side;
       play('horn',s.settings.sound,Math.abs(spatial)>.3?spatial:roadSide*.7);
+    }
+    if(film.kind==='near' && prev<film.cut-ROAD_IMPACT_LEAD && film.time>=film.cut-ROAD_IMPACT_LEAD) play('impact',s.settings.sound);
+    if(film.kind==='ppe') {
+      const beat=ppeBeat(film);
+      setHearingEffect(beat?.slot==='ears'&&beat.time>=PPE_CUES.ears&&beat.time<PPE_BEAT-PPE_FADE);
+      if(beat) {
+        const cue=Math.floor(film.time/PPE_BEAT)*PPE_BEAT+PPE_CUES[beat.slot];
+        if(prev<cue&&film.time>=cue) play(beat.slot==='feet'?'impact':beat.slot==='eyes'?'shrapnel':'hearing',s.settings.sound);
+      }
     }
     if(film.kind==='failure' && film.reason==='reach' && prev<REACH_JOLT && film.time>=REACH_JOLT) {
       play('impact',s.settings.sound);

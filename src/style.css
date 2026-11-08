@@ -136,6 +136,13 @@ kbd{padding:4px 5px;border:1px solid #b7cab56b;border-radius:3px;font:700 9px/1 
 .film-caption .text-button{display:flex;margin:3px auto -6px;color:var(--amber);pointer-events:auto}
 .near-flash{box-shadow:inset 0 0 120px 18px #e879452c;background:radial-gradient(ellipse at 50% 43%,#ffdb9429,transparent 59%)}
 .near-flash .film-caption{display:flex;align-items:center;justify-content:center;gap:8px;border-color:#d8ad73;color:#ffd496}
+.road-impact{background:#0e171a;animation:fade-in .15s ease-out both}
+.ppe-fade{background:#0e171a;animation:fade-in .22s ease-out both}
+.ppe-scene.ppe-impact{box-shadow:inset 0 0 18vmin 5vmin #b63c394c}
+.ppe-eyes.ppe-impact{background:radial-gradient(ellipse at center,#e88d8829,#9e313963);animation:ppe-vision .55s ease-out}
+.ppe-ears.ppe-impact{background:radial-gradient(ellipse at center,transparent 30%,#a94a4d46)}
+.ppe-remedies{display:grid;gap:8px;margin:0 0 15px;padding-left:1.2em;text-align:left;color:var(--dim);font-size:14px}
+@keyframes ppe-vision{from{opacity:.45}to{opacity:1}}
 .letterbox{position:absolute;inset:0;border-block:clamp(14px,5vh,54px) solid #0c1618}
 .glitch{display:grid;place-items:center;background:repeating-linear-gradient(0deg,#b4e7cd3b 0 2px,#172c2b9e 3px 8px);color:#dbffe9;font:700 12px/1.35 var(--mono);text-shadow:2px 0 #a96045,-2px 0 #65c9a4}
 .glitch b{background:#152827;padding:12px;border:1px solid #96d6b6}

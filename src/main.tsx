@@ -135,7 +135,7 @@ function App() {
         if(s.panel==='clipboard' || s.panel==='cabinet' || s.panel==='mail' || s.panel==='ending' || s.focus) close();
         else pause();
       }
-      if(key==='c' && s.started && !s.film) {
+      if(key==='c' && s.started && !s.film && (!s.panel || s.panel==='clipboard')) {
         e.preventDefault();
         raiseClipboard();
       }
@@ -177,7 +177,6 @@ function App() {
   });
   const skip=()=>action(()=>skipFilm(s));
   const next=()=>action(()=>continueFilm(s));
-  const cabinet=()=>action(()=>interact(s,'ppe'));
   const keyHint=s.settings.lookKeys==='arrows'?'ARROWS':'Q/E + ↑↓';
   return <main className={'game '+(touch?'touch':'desktop')+(s.settings.reduced?' reduced':'')} aria-label="Safety Quest">
     <SceneBoundary><World session={s} keys={keys} markers={markers} update={update} touch={touch} monitor={monitor} paper={paper}/></SceneBoundary>
@@ -244,8 +243,8 @@ function App() {
       </div>}
       {atCurb&&!s.focus&&<div className="guide"><div className="guide-text" role="status"><Icon name={s.trafficSide?'warning':'aim'} size={16}/> {direction(s)}</div></div>}
     </div>}
-    {s.started&&s.safety.clipboard&&!s.film&&panel!=='ending'&&<button className="clipboard-key" aria-pressed={panel==='clipboard'} title="Raise or lower the clipboard (C)" onClick={raiseClipboard}><span aria-hidden="true">▤</span><span>CLIPBOARD<small>{panel==='clipboard'?'Open':'Closed'}</small></span></button>}
-    {playing&&s.focus&&<InspectionFocus s={s} act={action} close={close} cabinet={cabinet}/>}
+    {s.safety.clipboard&&(playing||panel==='clipboard')&&<button className="clipboard-key" aria-pressed={panel==='clipboard'} title="Raise or lower the clipboard (C)" onClick={raiseClipboard}><span aria-hidden="true">▤</span><span>CLIPBOARD<small>{panel==='clipboard'?'Open':'Closed'}</small></span></button>}
+    {playing&&s.focus&&<InspectionFocus s={s} act={action} close={close}/>}
     {toast&&s.started&&!s.film&&!s.focus&&panel!=='ending'&&<div className="toast" role="status" key={s.toastId}><Icon name={toast.includes('mail')?'mail':'aim'} size={18}/>{toast}</div>}
     {s.film&&<FilmOverlay s={s} next={next} skip={skip}/>}
     {panel==='pause'&&<Sheet code="VISITOR TERMINAL / PAUSED" title="Safety Quest" close={close} extra="pause-sheet">

@@ -22,8 +22,8 @@ test('the bundled air horn has a strong signal before the camera reaction',()=>{
   for(let i=0;i<samples;i++) energy+=(clip.readInt16LE(44+i*2)/32768)**2;
   assert.ok(Math.sqrt(energy/samples)>.25);
 });
-function tickFor(s,seconds) {
-  for(let t=0;t<seconds;t+=.02) engine.tick(s,.02,idle);
+function tickFor(s,seconds,keys=idle) {
+  for(let t=0;t<seconds;t+=.02) engine.tick(s,.02,keys);
 }
 function session(pos=[0,16.45]) {
   const s=state.startSession();
@@ -195,6 +195,76 @@ test('a curb marker tap stops safely if a real truck closes the gap before entry
   assert.equal(s.gaze.checked,true);
 });
 
+test('unchecked zebra crossings accept a tap or a step before the truck incident',()=>{
+  for(const [point,target,fromSouth] of [[[0,16.45],'arrival',true],[[0,6.36],'arrival-south',false]]) {
+    for(const checked of [null,'left','right']) {
+      const s=session(point);
+      s.yaw=fromSouth?0:Math.PI;
+      if(checked) look(s,checked);
+      assert.equal(engine.targetAvailable(s,target),true);
+      if(checked) tickFor(s,.8,new Set(['w']));
+      else {engine.openNearby(s,target);tickFor(s,.8);}
+      assert.equal(s.film?.kind,'near');
+      assert.ok(map.onRoad(s.pos)&&map.inCrossing(s.pos));
+      assert.equal(s.film.holdView,Boolean(checked));
+      if(checked) assert.equal(s.film.side,(checked==='left')===fromSouth?1:-1);
+      engine.endFilm(s);
+      assert.equal(map.onRoad(s.pos),false);
+    }
+  }
+});
+
+test('all eight PPE combinations at both presses produce only the affected beats in order',()=>{
+  for(const press of ['a','b']) for(let mask=0;mask<8;mask++) {
+    const s=session([map.pressX[press],map.PRESS_Z+3.75]);
+    prepare(s);
+    s.pos=[map.pressX[press],map.PRESS_Z+3.75];
+    s.safety.ppe=[['boots','sneakers'],['glasses','scratched'],['hearing','broken']].map((items,i)=>items[(mask>>i)&1]);
+    s.safety.collectedPpe=s.safety.ppe.slice();
+    s.safety.tagHeld=true;
+    s.safety.inspected.a.front=true;
+    const safety=structuredClone(s.safety), settings=structuredClone(s.settings);
+    const expected=map.ppeOrder.filter((_,i)=>mask&(1<<i));
+    tickFor(s,.14,new Set(['w']));
+    if(!mask) {
+      assert.equal(s.film,null);
+      assert.equal(map.pressHazard(s.pos),press);
+      continue;
+    }
+    assert.equal(s.film?.press,press);
+    assert.deepEqual(s.film.hazards,expected);
+    const seen=new Set();
+    for(let frame=0;frame<400&&!cinema.canContinue(s.film);frame++) {
+      const beat=cinema.ppeBeat(s.film);
+      if(beat) seen.add(beat.slot);
+      engine.tick(s,.02,idle);
+    }
+    assert.deepEqual([...seen],expected);
+    assert.equal(cinema.filmStage(s),'ppe-black');
+    engine.continueFilm(s);
+    assert.equal(map.pressHazard(s.pos),null);
+    assert.deepEqual(s.safety,safety);
+    assert.deepEqual(s.settings,settings);
+    tickFor(s,.3);
+    assert.equal(s.film,null);
+  }
+});
+
+test('missing PPE is treated as unsafe and checked before inspecting a press',()=>{
+  const s=session();
+  prepare(s);
+  s.safety.ppe=['hearing'];
+  engine.interact(s,'b-guard');
+  assert.deepEqual(s.film.hazards,['feet','eyes']);
+  assert.equal(s.film.footwear,'missing');
+  assert.deepEqual(s.safety.inspected.b,{});
+  engine.endFilm(s);
+  s.safety.ppe=[];
+  engine.navigate(s,[map.pressX.a,map.PRESS_Z+2.72]);
+  tickFor(s,4);
+  assert.deepEqual(s.film.hazards,map.ppeOrder);
+});
+
 test('the curb prompt follows the road-facing side after arriving',()=>{
   for(const [position,heading] of [[[0,5.75],0],[[0,16.62],Math.PI]]) {
     const s=session(position);
@@ -316,6 +386,7 @@ test('object approach stops within reach of the stand point and leaves room from
   for(const target of ['clipboard','ppe','boots','a-guard','mail']) {
     const s=session([0,-2.25]);
     s.safety.door=true;
+    s.safety.ppe=['boots','glasses','hearing'];
     const {point,anchor,reach}=map.positions[target];
     engine.openNearby(s,target);
     const end=s.nav.end;
@@ -385,16 +456,20 @@ test('unique PPE is reusable and a spent tag stays attached across checkpoint re
     engine.gearAction(s,'scratched');
     assert.deepEqual(s.safety.ppe,['scratched']);
     assert.deepEqual(s.safety.collectedPpe,['glasses','scratched']);
+    engine.gearAction(s,'glasses');
+    engine.gearAction(s,'hearing');
+    engine.gearAction(s,'boots');
     engine.interact(s,'tag');
     engine.interact(s,'tag');
     inspect(s,'a-guard');
     engine.interact(s,'a-stop');
     engine.interact(s,'a-tag');
     engine.interact(s,'tag');
+    engine.gearAction(s,'scratched');
     const restored=state.startSession();
     assert.deepEqual(restored.pos,map.PRESS);
-    assert.deepEqual(restored.safety.collectedPpe,['glasses','scratched']);
-    assert.deepEqual(restored.safety.ppe,['scratched']);
+    assert.deepEqual(restored.safety.collectedPpe,['glasses','scratched','hearing','boots']);
+    assert.deepEqual(restored.safety.ppe,['hearing','boots','scratched']);
     assert.equal(restored.safety.tagHeld,false);
     assert.ok(restored.safety.tagged);
     assert.ok(engine.targetAvailable(restored,'ppe'));
