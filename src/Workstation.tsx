@@ -5,9 +5,9 @@ import { mailDecision } from './engine';
 import { hasMail, type Session } from './state';
 import type { Act } from './ShiftPanels';
 
-type Props={s:Session;act:Act;close:()=>void;monitor:RefObject<HTMLDivElement>;compact:boolean;clipboard:()=>void};
+type Props={s:Session;act:Act;close:()=>void;monitor:RefObject<HTMLDivElement>;clipboard:()=>void};
 const pdf=new URL(import.meta.env.BASE_URL+'Aulia-Ilham-Resume.pdf',document.baseURI).href;
-export function Workstation({s,act,close,monitor,compact,clipboard}:Props) {
+export function Workstation({s,act,close,monitor,clipboard}:Props) {
   const [start,setStart]=useState(false);
   const [minimized,setMinimized]=useState(false);
   const desktop=s.desktop;
@@ -21,7 +21,7 @@ export function Workstation({s,act,close,monitor,compact,clipboard}:Props) {
   const hideIcons=start||showWindow;
   const mailOpen=['inbox','message','report'].includes(desktop);
   const title=mailOpen?'Works Mail':desktop==='security'?'Security Desk':desktop==='cv'?'Document Viewer':desktop==='contact'?'Address Book':'Personnel Directory';
-  return <div className={'crt-layer '+(compact?'crt-portable':'crt-projected')}>
+  return <div className="crt-layer crt-projected">
     <div className="crt-screen" ref={monitor}>
       <section className="retro-desktop" role="dialog" aria-modal="true" aria-label="Works OS workstation">
         <div className="retro-icons" aria-label="Desktop icons" aria-hidden={hideIcons}>

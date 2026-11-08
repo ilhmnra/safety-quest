@@ -177,8 +177,10 @@ export function recordIssues(s:Safety):RecordIssue[] {
   return issues;
 }
 export const recordName=(page:InspectionPage)=>page==='ppe'?'PPE inspection':'Press '+page.toUpperCase();
-export const nearCrossing = ([x,z]:Point) => Math.abs(x)<2.3 && (z>=ROAD.near && z<18 || z<=ROAD.far && z>5);
+export const nearCrossing = ([x,z]:Point) => Math.abs(x)<2.8 && (z>=ROAD.near && z<18.65 || z<=ROAD.far && z>4.7);
 export const observed = (s:Session,side:'left'|'right') => s.gaze.curb===(fromSouth(s.pos)?'south':'north') && (s.passage!==null || s.roadClear || s.time-s.gaze[side]<9) && Number.isFinite(s.gaze[side]);
+export const usingCrossing = (s:Session) => nearCrossing(s.pos) && (s.roadClear || !!s.passage || !!s.gazeSelection ||
+  observed(s,'left') || observed(s,'right') || Math.cos(s.yaw)*(fromSouth(s.pos)?1:-1)>.23);
 const lookPoints:readonly [Inspection,Part][]=[
   ['stopped','status'],['front','front'],['guard','guard'],['left','left'],['rear','rear'],['right','right'],
 ];

@@ -48,26 +48,26 @@ function inspectPress(s,press) {
 
 test('off-stripe navigation remains possible; the truck stays in lane and cuts before contact',()=>{
   const s=session([5.8,18.5]);
+  s.traffic[0]=-18; // The ambient vehicle has passed and is still on-screen.
   engine.navigate(s,[5.8,6]);
   assert.ok(s.nav);
   tickFor(s,1);
   assert.equal(s.film?.kind,'near');
   assert.equal(s.film.unchecked,false);
   const before=s.pos.slice();
-  assert.ok(s.film.cut>3.3 && s.film.horn+cinema.ROAD_REACTION_DELAY<s.film.cut);
+  assert.ok(s.film.cut>=2 && s.film.cut<=3 && s.film.horn+cinema.ROAD_REACTION_DELAY<s.film.cut);
+  assert.equal(s.film.useAmbient,false);
   while(s.film.time<s.film.cut) {
-    const truck=traffic.truckMotion(s,s.film.side===1?0:1);
+    const truck=traffic.encounterTruck(s);
     assert.ok(truck.z-traffic.TRUCK_HALF_WIDTH>map.ROAD.far);
     assert.ok(truck.z+traffic.TRUCK_HALF_WIDTH<map.ROAD.near);
     assert.equal(traffic.roadOccupied(s,s.pos),false);
     engine.tick(s,.02,idle);
   }
-  const atCut=traffic.truckMotion(s,s.film.side===1?0:1);
+  const atCut=traffic.encounterTruck(s);
   assert.ok(Math.abs(atCut.x-s.pos[0])>traffic.TRUCK_HALF_LENGTH);
-  engine.continueFilm(s);
-  assert.ok(s.film);
-  tickFor(s,10);
   assert.deepEqual(s.pos,before);
+  assert.equal(cinema.canContinue(s.film),true);
   engine.continueFilm(s);
   assert.deepEqual(s.pos,map.START);
 });
@@ -108,6 +108,59 @@ test('two looks release the crossing only after both trucks pass',()=>{
   tickFor(s,3.8);
   assert.ok(s.safety.crossed);
   assert.equal(s.film,null);
+});
+
+test('a clear road survives centering, aligning inside the curb area and waiting mid-crossing in either direction',()=>{
+  for(const [from,to] of [[[2.12,16.62],[.35,5.75]],[[2.12,6.22],[.35,16.62]]]) {
+    const s=session(from);
+    look(s,'left');look(s,'right');
+    engine.turnHead(s,'center');
+    for(let t=0;t<20&&!s.roadClear;t+=.02) engine.tick(s,.02,idle);
+    tickFor(s,12);
+    assert.equal(s.roadClear,true);
+    assert.ok(state.observed(s,'left')&&state.observed(s,'right'));
+    engine.navigate(s,to);
+    for(let t=0;t<4&&!map.onRoad(s.pos);t+=.02) engine.tick(s,.02,idle);
+    assert.ok(map.onRoad(s.pos)&&map.inCrossing(s.pos));
+    const onward=s.nav;
+    s.nav=null;
+    s.clearUntil=s.time+.1;
+    tickFor(s,2);
+    assert.equal(s.roadClear,true);
+    s.nav=onward;
+    tickFor(s,5);
+    assert.deepEqual(s.pos,to);
+    assert.equal(s.film,null);
+    assert.equal(s.roadClear,false);
+  }
+});
+
+test('expired or abandoned curb checks are cleared together',()=>{
+  for(const abandoned of [false,true]) {
+    const s=session();
+    look(s,'left');look(s,'right');
+    if(abandoned) s.pos=[4,18];
+    else {
+      for(let t=0;t<20&&!s.roadClear;t+=.02) engine.tick(s,.02,idle);
+      assert.equal(s.roadClear,true);
+      s.clearUntil=s.time;
+    }
+    tickFor(s,.2);
+    assert.equal(s.roadClear,false);
+    assert.equal(s.passage,null);
+    assert.equal(state.observed(s,'left'),false);
+    assert.equal(state.observed(s,'right'),false);
+  }
+});
+
+test('the curb prompt follows the road-facing side after arriving',()=>{
+  for(const [position,heading] of [[[0,5.75],0],[[0,16.62],Math.PI]]) {
+    const s=session(position);
+    s.yaw=heading;
+    assert.equal(state.usingCrossing(s),false);
+    s.yaw+=Math.PI;
+    assert.equal(state.usingCrossing(s),true);
+  }
 });
 
 test('damaged equipment can be replaced, and attaching a collected tag requires guard and STOP',()=>{
@@ -217,6 +270,24 @@ test('every placed indoor interaction point has a collision-free approach',()=>{
   }
 });
 
+test('object approach stops within reach of the stand point and leaves room from the object',()=>{
+  for(const target of ['clipboard','ppe','boots','a-guard','mail']) {
+    const s=session([0,-2.25]);
+    s.safety.door=true;
+    const {point,anchor,reach}=map.positions[target];
+    engine.openNearby(s,target);
+    const end=s.nav.end;
+    assert.ok(map.distance(end,point)<=reach && map.distance(end,point)>.05,target);
+    assert.ok(map.distance(end,[anchor[0],anchor[2]])>1,target);
+    assert.equal(map.solid(end,true),false,target);
+    tickFor(s,10);
+    assert.deepEqual(s.pos,end);
+    engine.openNearby(s,target);
+    assert.deepEqual(s.pos,end);
+    assert.equal(s.nav,null);
+  }
+});
+
 test('laptop W follows the marked crossing while the camera stays pointed along traffic',()=>{
   const s=session();
   look(s,'left');look(s,'right');
@@ -297,10 +368,9 @@ test('office beats wait for Continue, and clipboard records remain independent',
   assert.equal(state.preparationPerformed(s.safety,'tag'),false);
   assert.ok(state.recordIssues(s.safety).some(x=>x.page==='ppe'&&x.label.includes('tag')&&x.reason==='Not performed'));
   s.film={kind:'incident',time:0,beat:0};
-  engine.continueFilm(s);
+  tickFor(s,20);
   assert.equal(s.film.beat,0);
   for(let beat=0;beat<4;beat++){
-    tickFor(s,20);
     assert.equal(s.film.beat,beat);
     engine.continueFilm(s);
   }

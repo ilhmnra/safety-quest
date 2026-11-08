@@ -1,20 +1,20 @@
 import { Action, Icon, Sheet } from './components';
 import { gear, isGear, machinePart, positions, ROAD, type Gear, type Part } from './map';
 import { checklist, preparationRows, recordIssues, recordName, type PortfolioTab, type Session } from './state';
-import { canContinue, filmStage } from './cinematics';
+import { filmStage } from './cinematics';
 import { gearAction, markPreparation, markRecord, reviewRecords } from './engine';
 import { play } from './audio';
+import type { RefObject } from 'react';
 
 export type Act = (fn:()=>void)=>void;
 type Props={s:Session;act:Act;close:()=>void};
 
-export function Clipboard({s,act,close}:Props) {
+export function Clipboard({s,act,close,paper}:Props&{paper:RefObject<HTMLDivElement>}) {
   const page=s.pressPage;
   const ready=!!s.safety.mailDisposition && !s.safety.reported;
   const turn=(next:Session['pressPage'])=>act(()=>{s.pressPage=next;play('paper',s.settings.sound);});
-  return <div className="clipboard-layer">
+  return <div className="clipboard-layer"><div className="clipboard-surface" ref={paper}>
     <section className="clipboard" role="dialog" aria-label="Inspection clipboard">
-      <div className="clipboard-clip" aria-hidden="true"/>
       <header>
         <div><div className="form-kicker">THE TRAINING WORKS · FORM SQ-02</div><h2>Safety inspection</h2></div>
         <button className="icon-button" aria-label="Lower clipboard" onClick={close}><Icon name="close"/></button>
@@ -47,7 +47,7 @@ export function Clipboard({s,act,close}:Props) {
         {ready&&<button className="form-submit" onClick={()=>act(()=>reviewRecords(s))}>Submit records <Icon name="arrow" size={17}/></button>}
       </footer>
     </section>
-  </div>;
+  </div></div>;
 }
 
 export function Cabinet({s,close,inspect,tag}:Props&{inspect:(id:Gear)=>void;tag:()=>void}) {
@@ -82,7 +82,7 @@ export function InspectionFocus({s,act,close,cabinet}:Props&{cabinet:()=>void}) 
       <div><div className="record-label">CABINET / {worn?(item.sound?'EQUIPPED':'EQUIPPED / REPLACE'):item.sound?'READY TO FIT':'DAMAGED / DO NOT USE'}</div><h2>{item.name}</h2><p>{item.detail}</p></div>
       <div className="focus-actions">
         <button className="focus-wear" onClick={()=>act(()=>gearAction(s,target))}>{worn?'Unequip':replacing?'Replace':'Equip'}</button>
-        <button onClick={cabinet}>Cabinet</button>
+        <button onClick={cabinet}>Back</button>
       </div>
     </aside>;
   }
@@ -97,8 +97,8 @@ export function InspectionFocus({s,act,close,cabinet}:Props&{cabinet:()=>void}) 
 }
 
 export function FilmOverlay({s,next,skip}:{s:Session;next:()=>void;skip:()=>void}) {
-  const f=s.film!, stage=filmStage(s), ready=canContinue(f);
-  const continueButton=<button className="text-button film-next" disabled={!ready} onClick={next}>Continue <Icon name="arrow" size={17}/></button>;
+  const f=s.film!, stage=filmStage(s);
+  const continueButton=<button className="text-button film-next" onClick={next}>Continue <Icon name="arrow" size={17}/></button>;
   const replaySkip=s.seenFilms.has(f.kind) && <button className="text-button film-skip" onClick={skip}>Skip scene</button>;
   if(stage==='near-quiet'||stage==='near-horn') {
     const side=f.kind==='near'&&(f.side===1)===(f.curb===ROAD.near)?'right':'left';

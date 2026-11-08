@@ -3,15 +3,15 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as T from 'three';
 import { architecture, officeArchitecture, press, truck, person, skin, uniform, type Box, ink, steel, amber, ochre, lamp, alert, tealLamp, cream, slate } from './models';
-import { distance, gear, isGear, machinePart, positions, PRESS_Z, ROAD, pressX, props, walls, type Gear, type Point, type Press, type Target } from './map';
-import { hasMail, nearCrossing, objective, observed, type Session } from './state';
-import { canContinue, filmStage, OFFICE_SHIFT, REACH_CUT, REACH_JOLT, ROAD_REACTION_DELAY } from './cinematics';
-import { truckMotion } from './traffic';
+import { distance, gear, isGear, machinePart, onRoad, positions, PREP_TABLE, PRESS_Z, ROAD, pressX, props, route, walls, type Gear, type Point, type Press, type Target } from './map';
+import { hasMail, objective, observed, usingCrossing, type Session } from './state';
+import { filmStage, OFFICE_SHIFT, REACH_CUT, REACH_JOLT, ROAD_REACTION_DELAY } from './cinematics';
+import { encounterTruck, fromSouth, truckMotion } from './traffic';
 import { audioStatus, play, setAudioLevel, unlock, updateAmbience } from './audio';
-import { angleDelta, navigate, nearest, observeView, openNearby, say, targetAvailable, tick, turnTo } from './engine';
+import { angleDelta, navigate, nearest, observeView, openNearby, say, targetAvailable, tick, turnTo, walkingRoute } from './engine';
 
 export type Markers = Partial<Record<Target,HTMLButtonElement>>;
-type Props = { session:Session; keys:Set<string>; markers:MutableRefObject<Markers>; update:()=>void; touch:boolean; monitor:MutableRefObject<HTMLDivElement|null>; compact:boolean };
+type Props = { session:Session; keys:Set<string>; markers:MutableRefObject<Markers>; update:()=>void; touch:boolean; monitor:MutableRefObject<HTMLDivElement|null>; paper:MutableRefObject<HTMLDivElement|null> };
 const cube=new T.BoxGeometry();
 const temp=new T.Object3D();
 const mats=new Map<string,T.Material>();
@@ -140,16 +140,17 @@ const headGlow=(()=>{
   gradient.addColorStop(0,'#fff4c4dd');gradient.addColorStop(.24,'#ffc87086');gradient.addColorStop(1,'#ffc87000');
   g.fillStyle=gradient;g.fillRect(0,0,64,64);return new T.CanvasTexture(c);
 })();
-function TruckRig({s,lane}:{s:Session;lane:0|1}) {
+function TruckRig({s,lane,encounter=false}:{s:Session;lane:0|1;encounter?:boolean}) {
   const rig=useRef<T.Group>(null), wheels=useRef<T.Group[]>([]);
   const lights=useRef<T.Group>(null);
   useFrame(()=>{
-    const p=truckMotion(s,lane), g=rig.current!;
-    g.visible=p.visible;
+    const p=encounter?encounterTruck(s):truckMotion(s,lane), g=rig.current!;
+    g.visible=!!p?.visible;
+    if(!p?.visible) return;
     g.position.set(p.x,-.05,p.z);
-    g.rotation.y=lane===0?Math.PI:0;
+    g.rotation.y=p.direction===1?Math.PI:0;
     for(const wheel of wheels.current) if(wheel) wheel.rotation.z=p.x*p.direction/.357;
-    const bright=s.film?.kind==='near' && s.film.side===p.direction;
+    const bright=s.film?.kind==='near' && (encounter || s.film.useAmbient&&s.film.side===p.direction);
     lights.current!.visible=p.visible;
     lights.current!.scale.setScalar(bright?1:.53);
   });
@@ -254,7 +255,7 @@ function Preparation({s}:{s:Session}) {
   return <>
     {(Object.keys(gear) as Gear[]).map(id=><CabinetItem key={id} s={s} id={id}/>)}
     {!s.safety.tagHeld&&!s.safety.tagged&&<TagModel at={[8.78,1.74,-4.41]}/>}
-    {!s.safety.clipboard&&<group position={[2.15,1.14,-3.03]} rotation-x={-1.23}><Batch boxes={boardBoxes}/></group>}
+    {!s.safety.clipboard&&<group position={[PREP_TABLE[0],1.15,PREP_TABLE[1]]} rotation-x={-1.23}><Batch boxes={boardBoxes}/></group>}
   </>;
 }
 const handBoxes:Box[]=[
@@ -265,12 +266,11 @@ const handBoxes:Box[]=[
 ];
 const injuryPixels:[number,number,number][]=[[.07,.015,-.15],[.11,-.026,-.18],[-.05,-.02,-.16],[-.02,.025,-.19],[.13,-.015,-.13],[.015,.055,-.17]];
 function HeldProps({s}:{s:Session}) {
-  const hand=useRef<T.Group>(null), board=useRef<T.Group>(null);
+  const hand=useRef<T.Group>(null);
   const sparks=useRef<T.Group>(null);
   const offset=useMemo(()=>new T.Vector3(),[]);
-  const lift=useRef(0);
-  useFrame(({camera},dt)=>{
-    const f=s.film, h=hand.current!, b=board.current!;
+  useFrame(({camera})=>{
+    const f=s.film, h=hand.current!;
     h.visible=f?.kind==='failure' && f.reason==='reach' && f.time<REACH_CUT;
     if(h.visible && f) {
       const reach=T.MathUtils.smoothstep(f.time,.23,2.65);
@@ -288,18 +288,10 @@ function HeldProps({s}:{s:Session}) {
         burst.scale.setScalar(.7+splash*5);
       }
     } else if(sparks.current) sparks.current.visible=false;
-    lift.current=T.MathUtils.damp(lift.current,s.panel==='clipboard'?1:0,12,dt);
-    b.visible=lift.current>.045;
-    if(b.visible) {
-      b.position.copy(offset.set(.23,-.65+lift.current*.43,-.64).applyQuaternion(camera.quaternion).add(camera.position));
-      b.quaternion.copy(camera.quaternion);
-      b.rotateZ(.13);
-    }
   });
   return <>
     <group ref={hand} visible={false}><Batch boxes={handBoxes} shadows={false}/></group>
     <group ref={sparks} visible={false}>{injuryPixels.map((bit,i)=><GlowingBox key={i} position={bit} size={[.017,.014,.02]} color={i%2===0?"#b74739":"#8f3631"}/>)}</group>
-    <group ref={board} visible={false}><Batch boxes={boardBoxes} shadows={false}/></group>
   </>;
 }
 
@@ -406,6 +398,51 @@ const ray=new T.Raycaster(), pointer=new T.Vector2();
 const ground=new T.Plane(new T.Vector3(0,1,0),0);
 const hit=new T.Vector3();
 const targetList=Object.entries(positions) as [Target,(typeof positions)[Target]][];
+const PAPER_WIDTH=.437, PAPER_HEIGHT=.525, PAPER_Y=-.014, PAPER_Z=.035;
+const heldBoard:Box[]=[
+  [0,0,0,.47,.59,.042,'#856a52'],
+  [0,PAPER_Y,.023,PAPER_WIDTH,PAPER_HEIGHT,.016,'#e1d5b3'],
+  [0,.273,.038,.184,.06,.046,steel],
+  [0,.293,.055,.116,.016,.028,cream],
+  [.18,-.266,-.011,.105,.122,.072,'#c3997b'],
+];
+const DOT_CAPACITY=100;
+
+function placeSurface(el:HTMLDivElement,a:T.Vector3,b:T.Vector3,width:number,height:number,interactive:boolean) {
+  el.style.left=((a.x+1)*width*.5)+'px';
+  el.style.top=((1-a.y)*height*.5)+'px';
+  el.style.width=((b.x-a.x)*width*.5)+'px';
+  el.style.height=((a.y-b.y)*height*.5)+'px';
+  el.dataset.aligned=String(interactive);
+}
+
+function plotGuide(mesh:T.InstancedMesh,start:Point,path:Point[]) {
+  const stamp=new T.Object3D();
+  stamp.rotation.x=-Math.PI/2;
+  let origin=start, skip=.72, count=0;
+  for(const point of path) {
+    const length=distance(origin,point);
+    for(;skip<length && count<DOT_CAPACITY;skip+=.49) {
+      const x=T.MathUtils.lerp(origin[0],point[0],skip/length);
+      const z=T.MathUtils.lerp(origin[1],point[1],skip/length);
+      stamp.position.set(x,z<0?.147:.083,z);
+      stamp.updateMatrix();
+      mesh.setMatrixAt(count++,stamp.matrix);
+    }
+    skip-=length;
+    origin=point;
+  }
+  mesh.count=count;
+  mesh.instanceMatrix.needsUpdate=true;
+}
+
+function guideTarget(s:Session,active:Target):Target {
+  if(onRoad(s.pos)&&s.crossingHeading!==null) return s.crossingHeading===0?'arrival':'arrival-south';
+  if(!usingCrossing(s)) return active;
+  const south=fromSouth(s.pos);
+  if(s.roadClear) return south?'arrival':'arrival-south';
+  return south?'crossing':'crossing-north';
+}
 function visibleFrom(s:Session,target:Target) {
   if(!targetAvailable(s,target)) return false;
   const d=distance(s.pos,positions[target].point);
@@ -432,9 +469,13 @@ function blockedView(a:Point,b:Point,object=false) {
   return false;
 }
 
-function Runner({session:s,keys,markers,update,touch,monitor,compact}:Props) {
+function Runner({session:s,keys,markers,update,touch,monitor,paper}:Props) {
   const {camera,gl,size,setDpr}=useThree();
   const floor=useRef<T.Mesh>(null);
+  const trail=useRef<T.InstancedMesh>(null);
+  const board=useRef<T.Group>(null);
+  const lift=useRef(0);
+  const guideCache=useRef<{at:Point;key:string}|null>(null);
   const highlight=useRef<T.Mesh>(null);
   const soundClock=useRef({elapsed:0,walked:0});
   const screenCorners=useMemo(()=>[new T.Vector3(),new T.Vector3()],[]);
@@ -538,21 +579,28 @@ function Runner({session:s,keys,markers,update,touch,monitor,compact}:Props) {
       }
     }
     const before=s.pos;
-    const changed=tick(s,dt,keys);
+    // Keep vehicle and film timing in real seconds while capping collision steps.
+    const changed=tick(s,dt,keys,Math.min(elapsed,.28));
     const f=s.film, m=smooth.current;
     let yaw=s.yaw,pitch=s.pitch,x=s.pos[0],z=s.pos[1],y=1.72;
     if(s.panel==='welcome' && !s.started && s.checkpoint==='outside' && !s.safety.crossed) {
       y=2.16; pitch=.022;
     }
     if(!s.settings.reduced && !s.panel && !f && (s.nav || keys.size)) y+=Math.sin(clock.elapsedTime*10)*.026;
+    const fov=camera instanceof T.PerspectiveCamera?camera.fov:74;
+    const viewSlope=2*Math.tan(T.MathUtils.degToRad(fov*.5));
+    const screenWidth=Math.min(size.width*.89,Math.max(160,(size.height-112)*4/3),650);
+    const crtZ=-11.409+1.476*size.height/(viewSlope*screenWidth);
     if(s.panel==='mail') {
-      x=7.6;z=compact?-9.95:-10.24;y=1.92;yaw=0;pitch=0;
+      x=7.6;z=crtZ;y=1.92;yaw=0;pitch=0;
+    } else if(s.panel==='cabinet'&&s.look) {
+      [yaw,pitch]=s.look;
     }
     if(s.focus && !f && !s.panel) {
       const [ax,ay,az]=positions[s.focus.target].anchor;
       const d=distance(s.pos,[ax,az]), gearFocus=isGear(s.focus.target);
-      const framing=gearFocus?1.12:.92;
-      const lean=Math.min(.19,Math.max(0,d-framing));
+      const framing=gearFocus?1.35:1.2;
+      const lean=Math.min(.075,Math.max(0,d-framing));
       x+=(ax-x)/Math.max(.1,d)*lean;
       z+=(az-z)/Math.max(.1,d)*lean;
       y+=T.MathUtils.clamp((ay-y)*.22,-.14,.13);
@@ -560,9 +608,9 @@ function Runner({session:s,keys,markers,update,touch,monitor,compact}:Props) {
       pitch=Math.atan2(ay-y,Math.max(.34,d-lean));
     }
     if(f?.kind==='near') {
-      if(f.time<(f.holdView?f.horn+ROAD_REACTION_DELAY:f.approachAt+.7)) { yaw=m.yaw; pitch=m.pitch; }
+      if(f.time<(f.holdView?f.horn+ROAD_REACTION_DELAY:.42)) { yaw=m.yaw; pitch=m.pitch; }
       else {
-        const truck=truckMotion(s,f.side===1?0:1);
+        const truck=encounterTruck(s)!;
         yaw=turnTo([x,z],[truck.x-f.side*2.55,truck.z]);
         pitch=-.055;
       }
@@ -575,7 +623,7 @@ function Runner({session:s,keys,markers,update,touch,monitor,compact}:Props) {
       yaw=turnTo([x,z],[ax,az]);pitch=Math.atan2(ay-y,distance([x,z],[ax,az]));
       if(!s.settings.reduced && f.time>REACH_JOLT && f.time<REACH_JOLT+.35)
         pitch-=.12*Math.sin(Math.PI*(f.time-REACH_JOLT)/.35);
-    } else if((f?.kind==='incident'||f?.kind==='audit') && (f.beat>0||f.time>1.2)) {
+    } else if(f?.kind==='incident'||f?.kind==='audit') {
       const staff=f.beat>=2;
       const move=T.MathUtils.smoothstep(f.time,0,2);
       x=staff?8.97:6.47;
@@ -601,17 +649,28 @@ function Runner({session:s,keys,markers,update,touch,monitor,compact}:Props) {
     camera.updateMatrixWorld();
     viewPosition.set(0,0,-1).applyQuaternion(camera.quaternion);
     const observedNow=observeView(s,m.yaw,m.pitch,dt);
-    if(s.panel==='mail'&&!compact&&monitor.current) {
-      const monitorScreen=monitor.current;
+    if(s.panel==='mail'&&monitor.current) {
       const [a,b]=screenCorners;
       a.set(6.862,2.474,-11.409).project(camera);
       b.set(8.338,1.366,-11.409).project(camera);
-      monitorScreen.style.left=((a.x+1)*size.width*.5)+'px';
-      monitorScreen.style.top=((1-a.y)*size.height*.5)+'px';
-      monitorScreen.style.width=((b.x-a.x)*size.width*.5)+'px';
-      monitorScreen.style.height=((a.y-b.y)*size.height*.5)+'px';
-      const aligned=Math.abs(m.x-7.6)+Math.abs(m.z+10.24)+Math.abs(angleDelta(m.yaw,0))<.12;
-      monitorScreen.dataset.aligned=String(aligned);
+      const aligned=Math.abs(m.x-7.6)+Math.abs(m.z-crtZ)+Math.abs(m.y-1.92)+Math.abs(angleDelta(m.yaw,0))+Math.abs(m.pitch)<.045;
+      placeSurface(monitor.current,a,b,size.width,size.height,aligned);
+    }
+    lift.current=T.MathUtils.damp(lift.current,s.panel==='clipboard'?1:0,14,dt);
+    const clipboard=board.current!;
+    clipboard.visible=lift.current>.04;
+    if(clipboard.visible) {
+      const [a,b]=screenCorners;
+      const pixelWidth=Math.min(size.width-42,440,Math.max(146,(size.height-165)*.8));
+      const depth=PAPER_Z+PAPER_WIDTH*size.height/(viewSlope*pixelWidth);
+      const drop=(size.height*.54*(1-lift.current)+24)*depth*viewSlope/size.height;
+      clipboard.position.copy(a.set(0,-drop,-depth).applyQuaternion(camera.quaternion).add(camera.position));
+      clipboard.quaternion.copy(camera.quaternion);
+      if(paper.current) {
+        a.set(-PAPER_WIDTH/2,PAPER_Y+PAPER_HEIGHT/2,PAPER_Z).applyQuaternion(clipboard.quaternion).add(clipboard.position).project(camera);
+        b.set(PAPER_WIDTH/2,PAPER_Y-PAPER_HEIGHT/2,PAPER_Z).applyQuaternion(clipboard.quaternion).add(clipboard.position).project(camera);
+        placeSurface(paper.current,a,b,size.width,size.height,lift.current>.86);
+      }
     }
     if(highlight.current) {
       const focus=s.focus;
@@ -635,12 +694,24 @@ function Runner({session:s,keys,markers,update,touch,monitor,compact}:Props) {
       audio.elapsed=0;
       const active=s.started&&!s.panel&&filmStage(s)!=='near-black'&&filmStage(s)!=='machine-black'&&f?.kind!=='incident'&&f?.kind!=='audit';
       updateAmbience(active,s.pos[1]>0,([0,1] as const).map(lane=>{
-        const truck=truckMotion(s,lane);
+        const truck=f?.kind==='near'&&lane===(f.side===1?0:1)?encounterTruck(s)!:truckMotion(s,lane);
         const p:[number,number]=[truck.x,truck.z];
-        return {distance:truck.visible?distance([m.x,m.z],p):100,pan:-Math.sin(angleDelta(m.yaw,turnTo([m.x,m.z],p)))};
+        return {distance:truck.visible||f?.kind==='near'?distance([m.x,m.z],p):100,pan:-Math.sin(angleDelta(m.yaw,turnTo([m.x,m.z],p)))};
       }));
     }
     const active=objective(s);
+    const guide=trail.current!;
+    guide.visible=s.started&&!s.panel&&!f&&!s.focus&&!s.nav&&!s.safety.reported;
+    if(guide.visible) {
+      const target=guideTarget(s,active);
+      const key=[target,s.roadClear,s.safety.door].join('|');
+      if(!guideCache.current || guideCache.current.key!==key || distance(s.pos,guideCache.current.at)>.62) {
+        const point=positions[target].point;
+        const path=s.roadClear?walkingRoute(s,point):route(s.pos,point,s.safety.door);
+        plotGuide(guide,s.pos,path??[]);
+        guideCache.current={at:[...s.pos],key};
+      }
+    }
     for(const [id,v] of targetList) {
       const el=markers.current[id];
       if(!el) continue;
@@ -662,13 +733,17 @@ function Runner({session:s,keys,markers,update,touch,monitor,compact}:Props) {
       if(s.nav) floor.current.position.set(s.nav.end[0],s.nav.end[1]<0?.131:.074,s.nav.end[1]);
     }
     const fingerprint=[filmStage(s),s.toastId,!!s.nav,s.panel,nearest(s),active,s.pressMode,s.pos[1]<-.55,
-      s.focus?.target,nearCrossing(s.pos),observed(s,'left'),observed(s,'right'),!!s.passage,s.roadClear,s.gazeSelection,!!s.look,s.film?canContinue(s.film):false].join('|');
+      s.focus?.target,usingCrossing(s),observed(s,'left'),observed(s,'right'),!!s.passage,s.roadClear,s.gazeSelection,!!s.look].join('|');
     if(changed || observedNow || fingerprint!==lastUI.current) {
       lastUI.current=fingerprint;
       update();
     }
   });
   return <>
+    <group ref={board} visible={false}><Batch boxes={heldBoard} shadows={false}/></group>
+    <instancedMesh ref={trail} args={[undefined,undefined,DOT_CAPACITY]} visible={false} frustumCulled={false}>
+      <circleGeometry args={[.053,8]}/><meshBasicMaterial color="#ffd28b" transparent opacity={.67} depthWrite={false}/>
+    </instancedMesh>
     <mesh ref={floor} visible={false} rotation-x={-Math.PI/2}><ringGeometry args={[.24,.305,28]}/><meshBasicMaterial color="#ffd08a" transparent opacity={.83} depthWrite={false}/></mesh>
     <mesh ref={highlight} visible={false}><ringGeometry args={[.115,.125,24]}/><meshBasicMaterial color="#ffd08a" transparent opacity={.7} depthWrite={false}/></mesh>
   </>;
@@ -701,6 +776,7 @@ function Stage(props:Props & {high:boolean}) {
     <Door s={s}/>
     <TruckRig s={s} lane={0}/>
     <TruckRig s={s} lane={1}/>
+    <TruckRig s={s} lane={0} encounter/>
     <Machines s={s}/>
     <Preparation s={s}/>
     <HeldProps s={s}/>

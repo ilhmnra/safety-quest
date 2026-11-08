@@ -6,7 +6,8 @@ export const TRUCK_HALF_WIDTH=1.28;
 export const TRUCK_HALF_LENGTH=3.05;
 const EDGE=64;
 const SPEED=10.5;
-const MIN_BUILDUP=3.4;
+const NEAR_MISS_TIME=2.65;
+const CLEAR_WINDOW=22;
 const playerRadius=.29;
 type Lane=0|1;
 const lanes=[0,1] as const;
@@ -16,8 +17,20 @@ export const fromSouth=(pos:Point)=>pos[1]>(ROAD.near+ROAD.far)/2;
 export const startTraffic=():[number,number]=>[49,-44];
 
 export function truckMotion(s:Session,lane:Lane) {
-  const x=s.traffic[lane];
+  const film=s.film?.kind==='near'&&lane===laneOf(s.film.side)&&s.film.useAmbient?s.film:null;
+  const x=film?encounterX(film):s.traffic[lane];
   return {x,z:ROAD.lanes[lane],direction:direction(lane),visible:Math.abs(x)<EDGE};
+}
+
+function encounterX(film:Extract<Film,{kind:'near'}>) {
+  const t=Math.min(1,film.time/film.cut);
+  return film.startX+(film.endX-film.startX)*t;
+}
+
+export function encounterTruck(s:Session) {
+  const film=s.film?.kind==='near'?s.film:null;
+  if(!film) return null;
+  return {x:encounterX(film),z:ROAD.lanes[laneOf(film.side)],direction:film.side,visible:!film.useAmbient};
 }
 export function roadOccupied(s:Session,next:Point) {
   return lanes.some(lane=>{
@@ -38,10 +51,13 @@ export function advanceTraffic(s:Session,dt:number) {
   for(const lane of lanes) {
     const dir=direction(lane);
     const x=s.traffic[lane];
+    if(film?.useAmbient&&lane===laneOf(film.side)) {
+      s.traffic[lane]=encounterX(film);
+      continue;
+    }
     if(x*dir<=-EDGE) {
-      if(film) {
-        if(lane===laneOf(film.side)) s.traffic[lane]=dir*EDGE;
-      } else if(passage) {
+      if(film) continue;
+      if(passage) {
         const canLaunch=lane===0 || passage.launched[0] && s.traffic[0]<12;
         if(!passage.launched[lane] && canLaunch) {
           s.traffic[lane]=dir*EDGE;
@@ -49,14 +65,13 @@ export function advanceTraffic(s:Session,dt:number) {
         }
       } else if(!s.roadClear && !onRoad(s.pos)) s.traffic[lane]=dir*EDGE;
     } else {
-      const speed=film && lane===laneOf(film.side) && film.time>=film.approachAt?film.speed:SPEED;
-      s.traffic[lane]=dir*Math.max(-EDGE,x*dir-speed*dt);
+      s.traffic[lane]=dir*Math.max(-EDGE,x*dir-SPEED*dt);
     }
   }
   if(!passage || !passage.launched.every(Boolean) || s.traffic[0]>=-7 || s.traffic[1]<=7) return false;
   s.passage=null;
   s.roadClear=true;
-  s.clearUntil=s.time+10;
+  s.clearUntil=s.time+CLEAR_WINDOW;
   return true;
 }
 
@@ -65,19 +80,13 @@ export function dangerFilm(s:Session,point:Point,unchecked:boolean,left:boolean,
   const side=unchecked && left!==right ? (left===south?1:-1) : (south?1:-1);
   const lane=laneOf(side);
   const targetX=point[0]+side*(TRUCK_HALF_LENGTH+1.3);
-  const distance=(s.traffic[lane]-targetX)*side;
-  const canUseCurrent=distance>=11;
-  const finishTrip=canUseCurrent?0:Math.max(0,(s.traffic[lane]*side+EDGE)/SPEED);
-  const speed=canUseCurrent?Math.min(SPEED,distance/MIN_BUILDUP):SPEED;
-  const approach=canUseCurrent?distance/speed:(EDGE-targetX*side)/speed;
-  const cut=finishTrip+approach;
+  const gap=(s.traffic[lane]-targetX)*side;
+  const useAmbient=gap>=8&&gap<=42;
+  const startX=useAmbient?s.traffic[lane]:targetX+side*SPEED*NEAR_MISS_TIME;
   return {
-    kind:'near', time:0, side, cut, horn:cut-1.9, approachAt:finishTrip, speed, holdView:unchecked&&left!==right, curb:south?ROAD.near:ROAD.far,
+    kind:'near', time:0, side, cut:NEAR_MISS_TIME, horn:1.16, startX, endX:targetX, useAmbient, holdView:unchecked&&left!==right, curb:south?ROAD.near:ROAD.far,
     unchecked, restart:south?[0,22.7]:[0,5.75],
   };
 }
 
-export function updateClearance(s:Session,near:boolean) {
-  if(onRoad(s.pos)) return;
-  if(s.roadClear && (s.time>s.clearUntil || !near || !inCrossing(s.pos))) s.roadClear=false;
-}
+export const clearanceExpired=(s:Session)=>s.roadClear&&s.time>s.clearUntil;

@@ -1,3 +1,5 @@
+import { PREP_TABLE } from './map';
+
 type RGB = string;
 export type Box = [x:number,y:number,z:number,w:number,h:number,d:number,color:RGB,ry?:number,rz?:number];
 export const ink='#17282e', steel='#46636a', slate='#334a51', mint='#87c4b0', cream='#e9dfc3', amber='#efb54f', ochre='#c98733', red='#b9543d', graphite='#233337';
@@ -229,9 +231,10 @@ for(const x of [5.93,6.89,7.87]) {
   box(x,2.19,-4.66,.68,.18,.06,'#78908a');
 }
 // Preparation table and safety cabinet peg.
-box(2.15,1.03,-3.02,1.08,.12,.72,'#947d5f');
-for(const x of [1.76,2.54]) for(const z of [-3.29,-2.77]) box(x,.51,z,.11,1.02,.11,slate);
-box(2.15,.14,-2.672,1.05,.21,.032,steel);
+const [tableX,tableZ]=PREP_TABLE;
+box(tableX,1.03,tableZ,1.08,.12,.72,'#947d5f');
+for(const x of [tableX-.39,tableX+.39]) for(const z of [tableZ-.27,tableZ+.25]) box(x,.51,z,.11,1.02,.11,slate);
+box(tableX,.14,tableZ+.348,1.05,.21,.032,steel);
 box(8.78,1.69,-4.61,.5,.75,.13,slate);
 box(8.78,1.94,-4.49,.085,.095,.14,steel);
 

@@ -11,7 +11,7 @@ npm run dev
 
 On a touchscreen, tap ground or an object to walk there and drag to look. On a laptop, use WASD, drag or use the arrow keys to look, and press F to interact. Click the control mode in the top bar for optional pointer lock. Settings offer Q/E for horizontal look, with Up and Down for pitch. Press C or tap the clipboard icon once you've picked up the clipboard. Esc opens the pause menu or closes the active panel.
 
-Look down both lanes at the zebra crossing and wait for both trucks. Collect the clipboard by the entrance, then inspect and wear the required PPE and pick up the tag. Inspect the press components in the world and record the actual work on the correct form. The workstation receives mail after both press exercises. The professional portfolio and original résumé are also available from the main menu.
+Look down both lanes at the zebra crossing and wait for “Road clear. Cross now.” Follow the floor dots to the clipboard beside the PPE cabinet. Inspect and wear the required PPE, pick up the tag, and record your press inspections directly on the clipboard. The workstation receives mail after both press exercises. The professional portfolio and original résumé are also available from the main menu.
 
 The factory is continuous. The office is a separate set used only during cinematics. These are fictional training exercises. Real servicing requires authorized lockout/tagout and site-specific procedures.
 

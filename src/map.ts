@@ -20,6 +20,7 @@ export const START: Point = [0, 22.7];
 export const PRESS: Point = [-4.8, -7.2];
 export const DESK: Point = [7.6, -9.65];
 export const ROAD = { near: 15.55, far: 7.25, width: 1.85, lanes: [13.7,9.2] as const };
+export const PREP_TABLE:Point=[4.55,-4.27];
 export const PRESS_Z = -12.18;
 export const pressX: Record<Press,number> = {a:-7.65,b:-1.95};
 type Destination = { point:Point; anchor:Vec; name:string; reach:number; hit?:Vec };
@@ -29,14 +30,14 @@ export const positions = {
   'arrival-south': {point:[0,16.62],anchor:[0,1.25,16.25],name:'Far curb toward arrival',reach:.5,hit:[2.8,1.5,.4]},
   arrival: {point:[0,5.75],anchor:[0,1.25,6.3],name:'Cross the road',reach:.5,hit:[2.8,1.5,.4]},
   door: {point:[0,1.45],anchor:[0,2.05,.24],name:'Training center entrance',reach:1.5,hit:[3.5,2.85,.8]},
-  ppe: {point:[6.9,-.70],anchor:[6.9,2.47,-4.58],name:'PPE station',reach:.42,hit:[2.8,.38,.25]},
-  clipboard: {point:[2.15,-1.94],anchor:[2.15,1.18,-2.87],name:'Take clipboard',reach:.65,hit:[.5,.55,.35]},
-  tag: {point:[8.78,-3.27],anchor:[8.78,1.74,-4.41],name:'Take out-of-service tag',reach:.75,hit:[.46,.49,.3]},
+  ppe: {point:[6.9,-2.48],anchor:[6.9,2.47,-4.58],name:'PPE station',reach:.8,hit:[2.8,.38,.25]},
+  clipboard: {point:[PREP_TABLE[0],-2.72],anchor:[PREP_TABLE[0],1.17,PREP_TABLE[1]],name:'Take clipboard',reach:.62,hit:[.5,.55,.46]},
+  tag: {point:[8.78,-2.92],anchor:[8.78,1.74,-4.41],name:'Take out-of-service tag',reach:.65,hit:[.46,.49,.3]},
   mail: {point:DESK,anchor:[7.6,2.1,-11.15],name:'Workstation',reach:1.45,hit:[2.7,1.95,.83]},
 } as Record<Target,Destination>;
 
 for(const [id,item] of Object.entries(gear)) {
-  positions[id as Gear]={point:[item.anchor[0],-3.31],anchor:item.anchor,name:item.name,reach:.72,hit:[.65,.51,.44]};
+  positions[id as Gear]={point:[item.anchor[0],-2.88],anchor:item.anchor,name:item.name,reach:.78,hit:[.65,.51,.44]};
 }
 const partLabels: Record<Part,string> = {
   front:'Front housing',rear:'Rear panel',left:'Left frame',right:'Right frame',guard:'Tooling guard',
@@ -44,15 +45,15 @@ const partLabels: Record<Part,string> = {
 };
 const parts:Record<Part,{point:Point; anchor:Vec; hit:Vec}> = {
   front:{point:[0,2.65],anchor:[-.48,2.95,1.24],hit:[.8,.42,.23]},
-  rear:{point:[0,-2.14],anchor:[0,2.08,-1.13],hit:[.8,.65,.32]},
-  left:{point:[-2.08,0],anchor:[-1.2,2.1,0],hit:[.29,.68,.65]},
-  right:{point:[2.08,0],anchor:[1.2,2.1,0],hit:[.29,.68,.65]},
-  guard:{point:[-.34,2.25],anchor:[-.26,1.96,.83],hit:[.44,.39,.27]},
-  status:{point:[.79,2.16],anchor:[.86,2.34,1.18],hit:[.54,.27,.19]},
-  start:{point:[.8,2.12],anchor:[.91,1.81,1.23],hit:[.32,.26,.24]},
-  stop:{point:[.8,2.12],anchor:[.91,1.33,1.24],hit:[.35,.28,.24]},
-  tag:{point:[-.92,2.16],anchor:[-.95,1.35,1.24],hit:[.39,.34,.24]},
-  reach:{point:[.05,2.12],anchor:[.32,1.44,.83],hit:[.36,.31,.28]},
+  rear:{point:[0,-2.48],anchor:[0,2.08,-1.13],hit:[.8,.65,.32]},
+  left:{point:[-2.46,0],anchor:[-1.2,2.1,0],hit:[.29,.68,.65]},
+  right:{point:[2.46,0],anchor:[1.2,2.1,0],hit:[.29,.68,.65]},
+  guard:{point:[-.34,2.59],anchor:[-.26,1.96,.83],hit:[.44,.39,.27]},
+  status:{point:[.79,2.55],anchor:[.86,2.34,1.18],hit:[.54,.27,.19]},
+  start:{point:[.8,2.52],anchor:[.91,1.81,1.23],hit:[.32,.26,.24]},
+  stop:{point:[.8,2.52],anchor:[.91,1.33,1.24],hit:[.35,.28,.24]},
+  tag:{point:[-.92,2.58],anchor:[-.95,1.35,1.24],hit:[.39,.34,.24]},
+  reach:{point:[.05,2.49],anchor:[.32,1.44,.83],hit:[.36,.31,.28]},
 };
 for(const press of ['a','b'] as const) {
   for(const part of pressParts) {
@@ -80,7 +81,7 @@ export const walls: Rect[] = [
 
 export const props: Rect[] = [
   [-9.02,-6.28,-13.45,-10.98], [-3.32,-.58,-13.45,-10.98],
-  [5.35,8.45,-5.75,-4.66], [1.61,2.69,-3.38,-2.66],
+  [5.35,8.45,-5.75,-4.66], [PREP_TABLE[0]-.54,PREP_TABLE[0]+.54,PREP_TABLE[1]-.36,PREP_TABLE[1]+.36],
   [5.84,9.32,-12.15,-10.68], [10.05,11.52,-16.9,-13.55],
   [-5.9,1.05,-18.7,-17.65], [8.96,11.1,-18.65,-17.68],
   [-20,-15.3,1.75,4.55], [14.15,18.35,2.35,5.45], [18.85,22.6,1.6,4.6],

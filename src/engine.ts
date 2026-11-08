@@ -1,7 +1,7 @@
 import { MathUtils } from 'three';
 import { play, warmMusic } from './audio';
 import { canContinue, filmStage, REACH_CUT, REACH_JOLT } from './cinematics';
-import { advanceTraffic, dangerFilm, fromSouth, roadOccupied, startPassage, updateClearance } from './traffic';
+import { advanceTraffic, clearanceExpired, dangerFilm, fromSouth, roadOccupied, startPassage } from './traffic';
 import { DESK, distance, gear, inCrossing, isGear, machinePart, onRoad, positions, PRESS, ROAD, route, solid, START, type Gear, type Part, type Point, type Press, type Target } from './map';
 import { equipped, hasMail, nearCrossing, observed, recordIssues, recordName, safeToStart, save, type Inspection, type PreparationCheck, type Session } from './state';
 
@@ -43,10 +43,10 @@ export function observeView(s:Session,yaw:number,pitch:number,dt:number) {
 }
 
 export function targetAvailable(s:Session,target:Target) {
-  if(target==='crossing') return s.pos[1]>ROAD.near && !s.roadClear;
-  if(target==='crossing-north') return s.pos[1]>0 && s.pos[1]<ROAD.far && !s.roadClear;
-  if(target==='arrival') return (s.roadClear || nearCrossing(s.pos)) && fromSouth(s.pos);
-  if(target==='arrival-south') return (s.roadClear || nearCrossing(s.pos)) && !fromSouth(s.pos);
+  if(target==='crossing') return s.pos[1]>ROAD.near && !s.roadClear && !s.passage;
+  if(target==='crossing-north') return s.pos[1]>0 && s.pos[1]<ROAD.far && !s.roadClear && !s.passage;
+  if(target==='arrival') return s.roadClear && (s.crossingHeading===0 || s.crossingHeading===null && fromSouth(s.pos));
+  if(target==='arrival-south') return s.roadClear && (s.crossingHeading===Math.PI || s.crossingHeading===null && !fromSouth(s.pos));
   if(target==='door') return s.pos[1]>-.55 && !s.safety.door;
   if(s.pos[1]>-.65) return false;
   if(target==='clipboard') return !s.safety.clipboard;
@@ -78,8 +78,8 @@ export function interact(s:Session,target:Target) {
     s.safety.door=true;
     play('door',s.settings.sound);
     save(s);
-    say(s,'Pick up the inspection clipboard on the table inside.');
-    navigate(s,[0,-2.25]);
+    say(s,'Pick up the clipboard beside the PPE cabinet.');
+    navigate(s,[2.6,-1.8]);
   } else if(target==='ppe') {
     aimAt(s,target);
     s.panel='cabinet';
@@ -133,13 +133,34 @@ export function interact(s:Session,target:Target) {
 
 export function navigate(s:Session,destination:Target|Point) {
   const target=typeof destination==='string'?destination:undefined;
-  const point=typeof destination==='string'?positions[destination].point:destination;
-  const path=route(s.pos,point,s.safety.door);
+  const point=target?positions[target].point:destination as Point;
+  const path=walkingRoute(s,point);
   if(!path) { say(s,'There is no clear walking route there.'); return; }
+  // Keep the entire approach collision-free, but stop as soon as the final leg enters interaction range.
+  if(target && !['arrival','arrival-south','crossing','crossing-north'].includes(target)) {
+    const previous=path.length===1?s.pos:path[path.length-2];
+    const leg=distance(previous,point);
+    const fraction=Math.min(1,positions[target].reach*.82/Math.max(.001,leg));
+    path[path.length-1]=[point[0]+(previous[0]-point[0])*fraction,point[1]+(previous[1]-point[1])*fraction];
+  }
   s.panel=null;
   s.focus=null;
   s.look=null;
-  s.nav={path,target,end:point};
+  s.nav={path,target,end:path[path.length-1]};
+}
+
+export function walkingRoute(s:Session,point:Point) {
+  const south=fromSouth(s.pos);
+  const towardRoad=south?point[1]<ROAD.near:point[1]>ROAD.far;
+  if(s.roadClear && nearCrossing(s.pos) && towardRoad && inCrossing(point)) {
+    const near=positions[south?'crossing':'crossing-north'].point;
+    const far=positions[south?'arrival':'arrival-south'].point;
+    const first=route(s.pos,near,s.safety.door);
+    if(first && onRoad(point)) return [...first,point];
+    const last=route(far,point,s.safety.door);
+    if(first && last) return [...first,far,...last];
+  }
+  return route(s.pos,point,s.safety.door);
 }
 
 export function openNearby(s:Session,target?:Target) {
@@ -381,6 +402,7 @@ export function reviewRecords(s:Session) {
 
 function roadStep(s:Session,next:Point) {
   if(!onRoad(next)) return 'go';
+  if(s.roadClear && onRoad(s.pos) && s.crossingHeading!==null) return roadOccupied(s,next)?'wait':'go';
   const zebra=inCrossing(next);
   if(zebra && s.passage && !s.roadClear) {
     if(s.nav) {
@@ -424,7 +446,7 @@ function move(s:Session,next:Point) {
   return false;
 }
 
-export function tick(s:Session,dt:number,keys:Set<string>):boolean {
+export function tick(s:Session,dt:number,keys:Set<string>,timelineDt=dt):boolean {
   const paused=s.panel==='pause'||s.panel==='settings'||s.panel==='restart'||
     (s.panel==='portfolio' && (s.portfolioBack==='pause'||s.portfolioBack==='ending'));
   if(paused) return false;
@@ -432,12 +454,11 @@ export function tick(s:Session,dt:number,keys:Set<string>):boolean {
   if(s.panel==='ending') return false;
   const film=s.film;
   const stage=filmStage(s);
-  let update=stage!=='near-black' && advanceTraffic(s,dt);
-  if(update) say(s,'Road clear. Walk across the zebra stripes.');
+  let update=stage!=='near-black' && advanceTraffic(s,timelineDt);
+  if(update) say(s,'Road clear. Cross now.');
   if(film) {
     const prev=film.time;
-    const ready=canContinue(film);
-    film.time+=dt;
+    film.time+=timelineDt;
     if(film.kind==='near' && prev<film.horn && film.time>=film.horn) {
       const laneYaw=film.side===1?-Math.PI/2:Math.PI/2;
       const spatial=-Math.sin(angleDelta(s.yaw,laneYaw));
@@ -447,10 +468,11 @@ export function tick(s:Session,dt:number,keys:Set<string>):boolean {
     if(film.kind==='failure' && film.reason==='reach' && prev<REACH_JOLT && film.time>=REACH_JOLT) {
       play('impact',s.settings.sound);
     }
-    return update || stage!==filmStage(s) || ready!==canContinue(film);
+    return update || stage!==filmStage(s);
   }
-  updateClearance(s,nearCrossing(s.pos));
-  if(!nearCrossing(s.pos) && !onRoad(s.pos) && !s.passage && s.gaze.curb) {
+  if(!onRoad(s.pos) && s.gaze.curb && (!nearCrossing(s.pos) || clearanceExpired(s))) {
+    s.roadClear=false;
+    s.passage=null;
     s.gaze=newGaze();
     s.gazeSelection=null;
   }
