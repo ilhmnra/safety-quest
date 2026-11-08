@@ -430,11 +430,15 @@ kbd{padding:4px 5px;border:1px solid #b7cab56b;border-radius:3px;font:700 9px/1 
 @media(max-width:550px){
  .crt-portable{padding-top:65px}
  .retro-icons{gap:2px}
- .retro-window{inset-inline:4px}
+ .retro-window{inset-inline:4px;bottom:52px}
+ .retro-start{bottom:47px}
+ .retro-desktop :is(.retro-taskbar,.retro-start,.retro-body) button,.retro-toolbar a{min-height:40px}
+ .retro-window .retro-title button{min-height:32px;min-width:34px}
  .retro-copy{padding:7px}
  .embedded-directory .terminal-grid{grid-template-columns:75px 1fr}
  .embedded-directory .terminal-tabs button>span{display:none}
  .cabinet-list li{padding-block:3px}
+ .cabinet-list button,.cabinet-tag button{min-height:42px}
 }
 
 /* Readable beats and a restrained ending reveal */

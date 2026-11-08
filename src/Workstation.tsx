@@ -9,27 +9,31 @@ type Props={s:Session;act:Act;close:()=>void;monitor:RefObject<HTMLDivElement>;c
 const pdf=new URL(import.meta.env.BASE_URL+'Aulia-Ilham-Resume.pdf',document.baseURI).href;
 export function Workstation({s,act,close,monitor,compact,clipboard}:Props) {
   const [start,setStart]=useState(false);
+  const [minimized,setMinimized]=useState(false);
   const desktop=s.desktop;
   const go=(screen:Session['desktop'])=>{
     setStart(false);
+    setMinimized(false);
     act(()=>{s.desktop=screen;});
   };
   const unread=hasMail(s.safety)&&!s.safety.mailDisposition;
+  const showWindow=desktop!=='home'&&!minimized;
+  const hideIcons=start||showWindow;
   const mailOpen=['inbox','message','report'].includes(desktop);
   const title=mailOpen?'Works Mail':desktop==='security'?'Security Desk':desktop==='cv'?'Document Viewer':desktop==='contact'?'Address Book':'Personnel Directory';
   return <div className={'crt-layer '+(compact?'crt-portable':'crt-projected')}>
     <div className="crt-screen" ref={monitor}>
       <section className="retro-desktop" role="dialog" aria-modal="true" aria-label="Works OS workstation">
-        <div className="retro-icons" aria-label="Desktop icons">
-          <button onClick={()=>go('inbox')}><Icon name="mail" size={29}/><span>Works Mail</span>{unread&&<small>1 new</small>}</button>
-          <button onClick={()=>go('portfolio')}><span className="retro-folder" aria-hidden="true"/>Portfolio</button>
-          <button onClick={()=>go('cv')}><span className="retro-document" aria-hidden="true">PDF</span>Résumé</button>
-          <button onClick={()=>go('contact')}><span className="retro-document" aria-hidden="true">@</span>Contact</button>
+        <div className="retro-icons" aria-label="Desktop icons" aria-hidden={hideIcons}>
+          <button disabled={hideIcons} onClick={()=>go('inbox')}><Icon name="mail" size={29}/><span>Works Mail</span>{unread&&<small>1 new</small>}</button>
+          <button disabled={hideIcons} onClick={()=>go('portfolio')}><span className="retro-folder" aria-hidden="true"/>Portfolio</button>
+          <button disabled={hideIcons} onClick={()=>go('cv')}><span className="retro-document" aria-hidden="true">PDF</span>Résumé</button>
+          <button disabled={hideIcons} onClick={()=>go('contact')}><span className="retro-document" aria-hidden="true">@</span>Contact</button>
         </div>
         <div className="retro-watermark" aria-hidden="true"><span>✦</span><strong>WORKS DESKTOP</strong><small>TRAINING TERMINAL · 98</small></div>
-        {desktop!=='home'&&<article className="retro-window">
+        {showWindow&&<article className="retro-window" aria-hidden={start}>
           <header className="retro-title"><strong>{title}</strong><div>
-            <button onClick={()=>go('home')} aria-label={'Minimize '+title}>_</button>
+            <button onClick={()=>{setMinimized(true);act(()=>{});}} aria-label={'Minimize '+title}>_</button>
             <button onClick={()=>go('home')} aria-label={'Close '+title}>×</button>
           </div></header>
           <div className="retro-body" key={desktop}>
@@ -78,7 +82,7 @@ export function Workstation({s,act,close,monitor,compact,clipboard}:Props) {
         </nav>}
         <footer className="retro-taskbar">
           <button className="retro-start-key" aria-pressed={start} onClick={()=>{setStart(!start);act(()=>{});}}><span aria-hidden="true">▦</span> Start</button>
-          {desktop!=='home'&&<span className="retro-task">{title}</span>}
+          {desktop!=='home'&&<button className="retro-task" aria-label={(minimized?'Restore ':'Minimize ')+title+' from taskbar'} aria-pressed={showWindow} onClick={()=>{setStart(false);setMinimized(!minimized);act(()=>{});}}>{title}</button>}
           <button className="retro-exit" onClick={close} aria-label="Close workstation">Exit CRT</button>
         </footer>
       </section>
