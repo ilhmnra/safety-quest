@@ -1,10 +1,10 @@
 import { Action, Icon } from './components';
 import { gear, isGear, machinePart, positions, ROAD, type Part } from './map';
-import { checklist, preparationPerformed, preparationRows, recordIssues, recordName, type PortfolioTab, type Session } from './state';
+import { checklist, preparationPerformed, preparationRows, recordIssues, recordName, type Session } from './state';
 import { filmStage, PPE_CUES, ppeBeat } from './cinematics';
 import { gearAction, markPreparation, markRecord, reviewRecords } from './engine';
 import { play } from './audio';
-import type { RefObject } from 'react';
+import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 
 export type Act = (fn:()=>void)=>void;
 type Props={s:Session;act:Act;close:()=>void};
@@ -85,6 +85,30 @@ export function InspectionFocus({s,act,close}:Props) {
   </aside>;
 }
 
+export function ReachPrompt({choose}:{choose:(confirmed:boolean)=>void}) {
+  const dialog=useRef<HTMLDialogElement>(null);
+  const cancel=useRef<HTMLButtonElement>(null);
+  useEffect(()=>{
+    const panel=dialog.current!;
+    panel.showModal();
+    cancel.current?.focus();
+    return ()=>panel.close();
+  },[]);
+  return <dialog ref={dialog} className="focus-card reach-prompt" aria-labelledby="reach-question" onCancel={event=>{
+    event.preventDefault();
+    choose(false);
+  }}>
+    <div>
+      <div className="record-label">PRESS B / LODGED OFFCUT</div>
+      <h2 id="reach-question">Are you sure you want to reach inside the press?</h2>
+    </div>
+    <div className="reach-actions">
+      <button ref={cancel} className="action primary" type="button" onClick={()=>choose(false)}>Cancel</button>
+      <Action kind="danger" onClick={()=>choose(true)}>Reach Inside</Action>
+    </div>
+  </dialog>;
+}
+
 export function FilmOverlay({s,next,skip}:{s:Session;next:()=>void;skip:()=>void}) {
   const f=s.film!, stage=filmStage(s);
   const continueButton=<button className="text-button film-next" onClick={next}>Continue <Icon name="arrow" size={17}/></button>;
@@ -118,14 +142,15 @@ export function FilmOverlay({s,next,skip}:{s:Session;next:()=>void;skip:()=>void
   }
   if(stage==='machine-tension'||stage==='machine-danger') {
     const reaching=f.kind==='failure'&&f.reason==='reach';
-    const caption=reaching?(stage==='machine-tension'?'The press shudders.':'The ram drops.'):'The start circuit is unsafe.';
-    return <div className={'film '+(stage==='machine-danger'?'near-flash':'anticipation')}><div className="film-caption"><Icon name="warning"/> <strong>{caption}</strong>{replaySkip}</div></div>;
+    const caption=reaching?(stage==='machine-tension'?'The press shudders.':'The ram drops.'):
+      stage==='machine-tension'?'Press B strains against the obstruction.':'Press B bursts at the tooling.';
+    return <div className={'film '+(stage==='machine-danger'&&!s.settings.reduced?'near-flash':'anticipation')}><div className="film-caption"><Icon name="warning"/> <strong>{caption}</strong>{replaySkip}</div></div>;
   }
   if(stage==='near-black'||stage==='machine-black') {
     const reach=f.kind==='failure'&&f.reason==='reach';
-    const title=f.kind==='near'?'That was dangerous.':reach?'Never reach into malfunctioning machinery.':'The press wasn’t ready.';
+    const title=f.kind==='near'?'That was dangerous.':reach?'Never reach into malfunctioning machinery.':'Do not start defective machinery.';
     const line=f.kind==='near'?(f.unchecked?'Check both directions and wait for a clear road.':'Always use the designated pedestrian crossing.'):
-      reach?'Stop, report, and follow authorized isolation procedures.':'Verify stopped status, all four sides, and the guard before starting.';
+      reach?'Stop, report, and follow authorized isolation procedures.':'Keep clear, report the defect, and leave Press B out of service. A tag does not isolate hazardous energy.';
     return <div className="film black" role="dialog" aria-label="Safety feedback"><div className="film-message"><Icon name="warning" size={34}/><h2>{title}</h2><p>{line}</p>{continueButton}</div></div>;
   }
   const audit=f.kind==='audit';
@@ -154,16 +179,17 @@ export function FilmOverlay({s,next,skip}:{s:Session;next:()=>void;skip:()=>void
   </div></div>;
 }
 
-export function Ending({explore,open}:{explore:()=>void;open:(tab:PortfolioTab)=>void}) {
+export function Ending({controls,explore,open}:{controls:ReactNode;explore:()=>void;open:()=>void}) {
   return <section className="ending" role="dialog" aria-modal="true" aria-label="Shift complete">
+    {controls}
     <div className="ending-card">
       <div className="ending-mark" aria-hidden="true"><Icon name="check" size={34}/></div>
       <div className="eyebrow"><span/> THE TRAINING WORKS / SHIFT COMPLETE</div>
       <h1>You made it<span>.</span></h1>
       <p>Your first day at the factory is complete.</p>
       <div className="ending-credit"><small>AN INTERACTIVE EXPERIENCE BY</small><strong>Aulia Ilham Nur Alfian</strong></div>
-      <Action kind="primary" onClick={()=>open('About Me')}>Meet the Developer <Icon name="arrow"/></Action>
-      <div className="ending-links"><button onClick={()=>open('Project Case Study')}>Project Case Study</button><button onClick={explore}>Explore Again</button><button onClick={()=>open('CV / Résumé')}>View CV</button><button onClick={()=>open('Contact')}>Contact</button></div>
+      <Action kind="primary" onClick={open}>View Portfolio</Action>
+      <div className="ending-links"><button onClick={explore}>Return to the Factory</button></div>
     </div>
   </section>;
 }

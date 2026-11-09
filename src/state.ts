@@ -34,15 +34,15 @@ export type Settings = {
   lookKeys: 'arrows' | 'qe';
 };
 export type Panel = 'welcome' | 'pause' | 'settings' | 'restart' | 'clipboard' | 'mail' | 'portfolio' | 'ending' | 'reach';
-export type PortfolioTab = 'About Me' | 'Work Experience' | 'Projects' | 'Skills' | 'CV / Résumé' | 'Contact' | 'Project Case Study';
+export type PortfolioTab = 'About Me' | 'Work Experience' | 'Projects' | 'Skills' | 'CV / Résumé' | 'Contact';
 
 export type Session = {
   safety: Safety;
   settings: Settings;
   panel: Panel | null;
   portfolioTab: PortfolioTab;
-  portfolioBack: 'pause' | 'mail' | 'welcome' | 'ending';
-  desktop: 'home'|'inbox'|'message'|'report'|'security'|'portfolio'|'cv'|'contact';
+  portfolioBack: 'pause' | 'welcome' | 'ending';
+  desktop: 'home'|'inbox'|'message'|'report'|'security';
   clipboardBack: Panel | null;
   pos: Point;
   yaw: number;
@@ -140,10 +140,10 @@ const pressSteps:Record<Press,readonly InspectionStep[]>={
     ['stopInitial','Pressed STOP before inspection.','stop','Press the STOP button.'],
     ['statusInitial','Verified initial stopped status.','status','Verify that the machine is stopped.'],
     ['front','Inspected front.','front','Inspect the front of the press.'],
-    ['rear','Inspected rear.','rear','Inspect the rear of the press.'],
-    ['left','Inspected left.','left','Inspect the left side.'],
-    ['right','Inspected right.','right','Inspect the right side.'],
     ['guard','Verified guards and visible condition.','guard','Check the safety guards and visible machine condition.'],
+    ['left','Inspected left.','left','Inspect the left side.'],
+    ['rear','Inspected rear.','rear','Inspect the rear of the press.'],
+    ['right','Inspected right.','right','Inspect the right side.'],
     ['cycle','Completed approved training cycle.','start','Complete the approved training cycle.'],
     ['stopFinal','Pressed STOP after operation.','stop','Press STOP after the cycle.'],
     ['statusFinal','Verified final stopped status.','status','Verify the machine is stopped after operation.'],
@@ -152,10 +152,10 @@ const pressSteps:Record<Press,readonly InspectionStep[]>={
     ['stopInitial','Pressed STOP before inspection.','stop','Press STOP before inspection.'],
     ['statusInitial','Verified initial stopped status.','status','Verify that the machine is stopped.'],
     ['front','Inspected front.','front','Inspect the front of the press.'],
-    ['rear','Inspected rear.','rear','Inspect the rear of the press.'],
-    ['left','Inspected left.','left','Inspect the left side.'],
-    ['right','Inspected right.','right','Inspect the right side.'],
     ['defect','Identified visible defect.','guard','Inspect the safety guard and identify any defects.'],
+    ['left','Inspected left.','left','Inspect the left side.'],
+    ['rear','Inspected rear.','rear','Inspect the rear of the press.'],
+    ['right','Inspected right.','right','Inspect the right side.'],
     ['stopFinal','Pressed STOP before reporting.','stop','Press STOP again before reporting the defect.'],
     ['statusFinal','Verified final stopped status.','status','Verify the machine is still stopped.'],
     ['tagged','Reported defect and attached OUT OF SERVICE tag.','tag','Report the defect and attach the OUT OF SERVICE tag.'],
@@ -164,6 +164,12 @@ const pressSteps:Record<Press,readonly InspectionStep[]>={
 export const checklist=(press:Press)=>pressSteps[press];
 export const nextStep=(s:Safety,press:Press)=>checklist(press).find(([key])=>!s.inspected[press][key]);
 export const hasMail=(s:Safety)=>!nextStep(s,'a')&&!nextStep(s,'b');
+export function endingMusicAllowed(s:Session,resumePanel:Panel|null) {
+  if(!s.settings.sound) return false;
+  const panel=s.panel==='portfolio'?s.portfolioBack:s.panel;
+  return panel==='ending'||resumePanel==='ending'&&
+    (panel==='pause'||panel==='settings'||panel==='restart');
+}
 export type RecordIssue = { page:InspectionPage; label:string; reason:'Not performed'|'Not recorded' };
 export function recordIssues(s:Safety):RecordIssue[] {
   const issues:RecordIssue[]=[];

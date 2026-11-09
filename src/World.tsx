@@ -5,7 +5,7 @@ import * as T from 'three';
 import { architecture, cabinetBoxes, officeArchitecture, press, truck, person, skin, uniform, type Box, ink, steel, amber, ochre, lamp, alert, tealLamp, cream, slate } from './models';
 import { distance, gear, isGear, machinePart, onRoad, positions, PREP_TABLE, PRESS_Z, ROAD, pressX, props, route, walls, type Gear, type Point, type Press, type Target, type Vec } from './map';
 import { hasMail, nearCrossing, objective, observed, usingCrossing, type Session } from './state';
-import { filmStage, OFFICE_SHIFT, PPE_CUES, PPE_FOOT_RELEASE, ppeBeat, REACH_CUT, REACH_JOLT, ROAD_IMPACT_LEAD, ROAD_REACTION_DELAY } from './cinematics';
+import { filmStage, OFFICE_SHIFT, PPE_CUES, PPE_FOOT_RELEASE, ppeBeat, REACH_CUT, REACH_JOLT, ROAD_IMPACT_LEAD, ROAD_REACTION_DELAY, START_BURST, START_CUT } from './cinematics';
 import { encounterTruck, fromSouth, truckMotion } from './traffic';
 import { audioStatus, play, setAudioLevel, unlock, updateAmbience } from './audio';
 import { angleDelta, navigate, nearest, observeView, openNearby, say, targetAvailable, tick, turnTo, walkingRoute } from './engine';
@@ -372,6 +372,34 @@ function PpeEffects({s}:{s:Session}) {
   </>;
 }
 
+const burstColors=['!#ffcb76','!#f39a46','#595852','#72706a'];
+
+function PressBurst({s}:{s:Session}) {
+  const burst=useRef<T.Group>(null);
+  useFrame(()=>{
+    const group=burst.current!;
+    const f=s.film;
+    const age=f?.kind==='failure'&&f.reason==='operation'?f.time-START_BURST:-1;
+    group.visible=age>=0&&age<START_CUT-START_BURST;
+    if(!group.visible) return;
+    group.children.forEach((bit,i)=>{
+      const spark=i<10;
+      bit.visible=spark?age<.58&&!s.settings.reduced:age>=.08;
+      const speed=spark ? .8+(i%5)*.27 : .33;
+      const flight=s.settings.reduced ? .26 : age;
+      const angle=i*2.39996;
+      const size=spark ? .052*(1-age/.63) : .12+flight*.26;
+      const lift=spark ? .8 : 1.08;
+      bit.position.set(Math.cos(angle)*speed*flight, .06+(lift+Math.sin(angle)*.48)*flight, speed*flight*(.6+(i%4)*.21));
+      bit.scale.setScalar(Math.max(.006,size));
+      bit.rotation.set(flight*2+i,flight*3,angle);
+    });
+  });
+  return <group ref={burst} position={[.18,1.48,.94]} visible={false}>
+    {Array.from({length:16},(_,i)=><mesh key={i} geometry={cube} material={material(burstColors[i<10?i%2:2+i%2])}/>)}
+  </group>;
+}
+
 function Machines({s}:{s:Session}) {
   const ram=useRef<Partial<Record<Press,T.Group>>>({});
   const beacon=useRef<T.Mesh>(null);
@@ -384,6 +412,10 @@ function Machines({s}:{s:Session}) {
     if(f?.kind==='failure'&&f.reason==='reach') {
       const strike=T.MathUtils.smoothstep(f.time,REACH_JOLT,REACH_JOLT+.19);
       ram.current.b!.position.y=-.10*Math.sin(Math.min(1,f.time/2.5)*Math.PI)-.61*strike;
+    } else if(f?.kind==='failure'&&f.reason==='operation') {
+      const strain=T.MathUtils.smoothstep(f.time,.12,START_BURST);
+      const recoil=T.MathUtils.smoothstep(f.time,START_BURST,START_BURST+.18);
+      ram.current.b!.position.y=-.18*strain+.26*recoil;
     } else ram.current.b!.position.y=0;
     for(const [id,button] of Object.entries(controls.current)) {
       const pressed=s.controlPress?.target===id && s.controlPress.until>s.time;
@@ -399,13 +431,13 @@ function Machines({s}:{s:Session}) {
       <Batch boxes={a?modelA:modelB}/>
       <Sign position={[0,3.117,1.22]} w={1.51} h={.385} title={a?'PRESS A':'PRESS B'} sub={a?'FUNCTIONAL TRAINING PRESS':'DEFECTIVE TRAINING PRESS'}/>
       <Sign position={[.86,2.235,1.298]} w={.47} h={.19} title={status} sub="SIMULATION"/>
-      {(['start','stop'] as const).filter(part=>a||part==='stop').map(part=>{
+      {(['start','stop'] as const).map(part=>{
         const running=a&&s.pressMode==='cycling';
         return <group key={part} position={[.91,part==='start'?1.705:1.225,1.338]} ref={g=>{if(g)controls.current[(id+'-'+part) as Target]=g;}}>
           <GlowingBox position={[0,0,0]} size={[.22,.128,.045]} color={part==='start'?(running?tealLamp:'#719782'):(running?'#ae594b':alert)}/>
         </group>;
       })}
-      {a&&<Sign position={[.91,1.53,1.257]} w={.29} h={.065} title="START"/>}
+      <Sign position={[.91,1.53,1.257]} w={.29} h={.065} title="START"/>
       <Sign position={[.91,1.05,1.257]} w={.29} h={.065} title="STOP"/>
       {!a ? <mesh ref={beacon} geometry={cube} position={[.8,3.91,.36]} scale={[.22,.1,.19]} material={material('#87724d')}/> :
         <GlowingBox position={[.8,3.91,.36]} size={[.22,.1,.19]} color={s.pressMode==='cycling'?lamp:tealLamp}/>}
@@ -416,6 +448,7 @@ function Machines({s}:{s:Session}) {
       </group>
       {!a&&<Sign position={[-.95,1.54,1.29]} w={.39} h={.115} title="TAG HOOK" sub="REPORT DEFECTS"/>}
       {!a&&s.safety.tagged&&<TagModel at={[-.95,1.19,1.38]} tilt={-.17}/>}
+      {!a&&<PressBurst s={s}/>}
     </group>;
   })}</>;
 }
@@ -770,11 +803,13 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper,turnCue}:Scen
         const age=beat.time-PPE_CUES[beat.slot];
         y+=Math.sin(age*32)*Math.max(0,.06-age*.17);
       }
-    } else if(f?.kind==='failure' && f.reason==='reach') {
-      const [ax,ay,az]=positions['b-reach'].anchor;
+    } else if(f?.kind==='failure') {
+      const reaching=f.reason==='reach';
+      const [ax,ay,az]=reaching?positions['b-reach'].anchor:[pressX.b+.16,1.82,PRESS_Z+.96];
       yaw=turnTo([x,z],[ax,az]);pitch=Math.atan2(ay-y,distance([x,z],[ax,az]));
-      if(!s.settings.reduced && f.time>REACH_JOLT && f.time<REACH_JOLT+.35)
-        pitch-=.12*Math.sin(Math.PI*(f.time-REACH_JOLT)/.35);
+      const age=f.time-(reaching?REACH_JOLT:START_BURST);
+      if(!s.settings.reduced && age>0 && age<.35)
+        pitch-=.12*Math.sin(Math.PI*age/.35);
     } else if(f?.kind==='incident'||f?.kind==='audit') {
       const staff=f.beat>=2;
       const move=T.MathUtils.smoothstep(f.time,0,2);

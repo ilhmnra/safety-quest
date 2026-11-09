@@ -3,7 +3,7 @@ import type { PortfolioTab } from './state';
 
 const original='https://ilhmnra.github.io/';
 const resume=new URL('./Aulia-Ilham-Resume.pdf',document.baseURI).href;
-export const tabs:PortfolioTab[]=['About Me','Work Experience','Projects','Skills','CV / Résumé','Contact','Project Case Study'];
+const tabs:PortfolioTab[]=['About Me','Work Experience','Projects','Skills','CV / Résumé','Contact'];
 
 function Link({href,children}:{href:string;children:React.ReactNode}) {
   return <a href={href} target="_blank" rel="noopener noreferrer">{children} <span aria-hidden>↗</span></a>;
@@ -13,11 +13,11 @@ const skills = [
   ['Software and data','C#','ASP.NET MVC','Python','SQL','SQL Server'],
   ['Delivery and quality','Agile development','Functional testing','AI evaluation','Rubric design','RL environment QA'],
 ];
-export default function Portfolio({tab,change,close,embedded=false}:{tab:PortfolioTab;change:(tab:PortfolioTab)=>void;close:()=>void;embedded?:boolean}) {
+export default function Portfolio({tab,change,close}:{tab:PortfolioTab;change:(tab:PortfolioTab)=>void;close:()=>void}) {
   const content=useRef<HTMLElement>(null);
   useEffect(()=>{content.current?.scrollTo(0,0);},[tab]);
-  return <div className={embedded?"terminal embedded-directory":"terminal"} role={embedded?undefined:"dialog"} aria-modal={embedded?undefined:true} aria-label="Works OS Personnel Directory">
-    {!embedded&&<header className="terminal-top"><span className="terminal-dot"/><b>WORKS OS</b><span> / PERSONNEL DIRECTORY</span><button className="icon-button close" aria-label="Close personnel directory" onClick={close}>×</button></header>}
+  return <div className="terminal" role="dialog" aria-modal="true" aria-label="Works OS Personnel Directory">
+    <header className="terminal-top"><span className="terminal-dot"/><b>WORKS OS</b><span> / PERSONNEL DIRECTORY</span><button className="icon-button close" aria-label="Close personnel directory" onClick={close}>×</button></header>
     <div className="terminal-grid">
       <nav aria-label="Portfolio sections" className="terminal-tabs">{tabs.map((t,i)=><button type="button" key={t} aria-pressed={t===tab} onClick={()=>change(t)}><span aria-hidden>{['◉','▤','◇','▦','▧','↗'][i]}</span>{t}</button>)}</nav>
       <section className="terminal-content" ref={content} aria-label={tab}>
@@ -35,16 +35,15 @@ export default function Portfolio({tab,change,close,embedded=false}:{tab:Portfol
         </>}
         {tab==='Projects' && <>
           <h2>Selected Projects</h2>
-          <div className="record"><span className="record-label">01 / INTERNAL BUSINESS SYSTEM</span><h3>Etrained</h3><p>An employee training administration system that brings scheduling, registration, approvals, records, and reporting into one workflow.</p><Link href={original+'projects/etrained/'}>Read the case study</Link></div>
-          <div className="record"><span className="record-label">02 / PENS AGILE TEAM PRODUCT</span><h3>Countlorie</h3><p>A mobile and web calorie tracker for daily targets, meals, and portions. The team delivered it through Agile Product-Based Learning and published it on Google Play.</p><Link href={original+'projects/countlorie/'}>Read the case study</Link></div>
-          <div className="record"><span className="record-label">03 / INTERACTIVE WEB EXPERIENCE</span><h3>Safety Quest</h3><p>This explorable voxel factory uses a continuous 3D world to teach fictional workplace safety decisions and introduce the portfolio.</p><button onClick={()=>change('Project Case Study')}>Project Case Study</button></div>
-        </>}
-        {tab==='Project Case Study' && <>
-          <h2>Safety Quest — Reimagining Manufacturing Safety Training Through Interactive Learning</h2>
-          <p>Independent concept by Aulia Ilham Nur Alfian, inspired by exposure to training administration at PT Panasonic Manufacturing Indonesia.</p>
-          <div className="record"><h3>Design</h3><p>A reusable browser prototype for recurring onboarding. Players explore a fictional factory, practice on a functional press before inspecting a defective one, and manually document their actions. Short simulated incidents explain risky decisions and offer checkpoint retries.</p></div>
-          <div className="record"><h3>Technology and limits</h3><p>React, TypeScript, Three.js and React Three Fiber power the simulation. It requires a compatible WebGL browser. Learning outcomes have yet to be validated, and the prototype does not provide certification.</p></div>
-          <Link href={original+'projects/safety-quest/'}>Read Full Case Study</Link>
+          <article className="record featured-project">
+            <span className="record-label">INDEPENDENT TRAINING PROTOTYPE</span>
+            <h3>Safety Quest</h3>
+            <p>Inspired by recurring onboarding workflows, this first-person factory simulation lets players compare a working press with a defective one and record what they actually inspected.</p>
+            <p>Built with React, TypeScript, and Three.js for WebGL browsers. The scenarios are fictional and provide no workplace certification.</p>
+            <Link href={original+'projects/safety-quest/'}>Read Full Case Study</Link>
+          </article>
+          <div className="record"><span className="record-label">PENS AGILE TEAM PRODUCT</span><h3>Countlorie</h3><p>A mobile and web calorie tracker for daily targets, meals, and portions. The team delivered it through Agile Product-Based Learning and published it on Google Play.</p><Link href={original+'projects/countlorie/'}>Read the Countlorie case study</Link></div>
+          <div className="record"><span className="record-label">INTERNAL BUSINESS SYSTEM</span><h3>Etrained</h3><p>An employee training administration system that brings scheduling, registration, approvals, records, and reporting into one workflow.</p><Link href={original+'projects/etrained/'}>Read the Etrained case study</Link></div>
         </>}
         {tab==='Skills' && <><h2>Tools &amp; Skills</h2>{skills.map(([group,...tags])=><div className="record" key={group}><h3>{group}</h3><ul className="chips">{tags.map(tag=><li key={tag}>{tag}</li>)}</ul></div>)}</>}
         {tab==='CV / Résumé' && <>
@@ -59,6 +58,6 @@ export default function Portfolio({tab,change,close,embedded=false}:{tab:Portfol
         </>}
       </section>
     </div>
-    {!embedded&&<footer className="terminal-footer"><span className="terminal-dot"/> LOCAL DIRECTORY <span>WORKS / 01</span></footer>}
+    <footer className="terminal-footer"><span className="terminal-dot"/> LOCAL DIRECTORY <span>WORKS / 01</span></footer>
   </div>;
 }

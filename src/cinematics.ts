@@ -9,6 +9,9 @@ export type Film =
 
 export const REACH_JOLT=3.15;
 export const REACH_CUT=4.08;
+export const START_BURST=1.3;
+export const START_CUT=2.55;
+export const machineCut=(reason:'reach'|'operation')=>reason==='reach'?REACH_CUT:START_CUT;
 export const OFFICE_SHIFT=-49;
 export const ROAD_REACTION_DELAY=.32;
 export const ROAD_IMPACT_LEAD=.17;
@@ -28,8 +31,8 @@ export function filmStage(s:Session) {
     return 'near-black';
   }
   if(f.kind==='failure') {
-    if(f.time<(f.reason==='reach'?REACH_JOLT:1.3)) return 'machine-tension';
-    return f.time<(f.reason==='reach'?REACH_CUT:2.55)?'machine-danger':'machine-black';
+    if(f.time<(f.reason==='reach'?REACH_JOLT:START_BURST)) return 'machine-tension';
+    return f.time<machineCut(f.reason)?'machine-danger':'machine-black';
   }
   if(f.kind==='ppe') {
     const beat=ppeBeat(f);
@@ -41,7 +44,7 @@ export function filmStage(s:Session) {
 }
 export function canContinue(f:Film) {
   if(f.kind==='near') return f.time>=f.cut;
-  if(f.kind==='failure') return f.time>=(f.reason==='reach'?REACH_CUT:2.55);
+  if(f.kind==='failure') return f.time>=machineCut(f.reason);
   if(f.kind==='ppe') return f.time>=f.hazards.length*PPE_BEAT;
   return true;
 }

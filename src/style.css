@@ -5,7 +5,7 @@ html,body,#root{width:100%;height:100%;margin:0;overflow:hidden;overscroll-behav
 body{position:fixed;inset:0}
 button,select,a{-webkit-tap-highlight-color:transparent}
 button,select{font:inherit;color:inherit}
-button{cursor:pointer}
+button,a[href]{cursor:pointer}
 button:disabled{cursor:default;opacity:.48}
 button:focus-visible,a:focus-visible,select:focus-visible{outline:2px solid var(--amber);outline-offset:3px}
 button, a{touch-action:manipulation}
@@ -393,8 +393,6 @@ kbd{padding:4px 5px;border:1px solid #b7cab56b;border-radius:3px;font:700 9px/1 
 .retro-icons button:hover,.retro-icons button:focus-visible{background:#182e6aaa;border-color:#afd1c56e}
 .retro-icons button>svg{color:#f3d793}
 .retro-icons button small{position:absolute;top:3px;right:-2px;background:#f2d37c;color:#292a22;text-shadow:none;padding:2px;font-size:8px}
-.retro-folder{position:relative;width:27px;height:18px;background:#ddbe72;border:2px solid #6a5228;border-top-color:#f8dfa0;margin:7px 0 3px}
-.retro-folder::before{content:"";position:absolute;left:-2px;bottom:100%;width:12px;height:5px;background:#e7c97e;border:2px solid #6a5228;border-bottom:none}
 .retro-document{display:grid;place-items:center;width:23px;height:27px;background:#f1ecd7;color:#543f3a;border:1px solid #344850;box-shadow:2px 2px #25464c;font:850 9px/1 var(--mono);text-shadow:none}
 .retro-watermark{position:absolute;inset:18% 9% auto auto;text-align:right;color:#c6e3dd;opacity:.32;display:grid;justify-items:end;gap:5px}
 .retro-watermark span{font-size:clamp(46px,11vw,104px)}
@@ -428,29 +426,31 @@ kbd{padding:4px 5px;border:1px solid #b7cab56b;border-radius:3px;font:700 9px/1 
 .retro-window .retro-message>svg{flex:none;color:#326170}
 .retro-message small,.retro-attachment small{display:block;color:#435b55;font-size:10px}
 .retro-attachment>span:last-child{overflow-wrap:anywhere}
-.retro-viewer{display:grid;grid-template-rows:auto minmax(0,1fr);height:100%}
-.retro-viewer iframe{height:100%;width:100%;border:0}
-.embedded-directory.terminal{width:100%;height:100%;border:none;box-shadow:none;border-radius:0;animation:none}
-.embedded-directory .terminal-grid{height:100%;grid-template-columns:105px 1fr}
-.embedded-directory .terminal-tabs{padding:4px}
-.embedded-directory .terminal-tabs button{font-size:9px;min-height:25px;line-height:1.1}
-.embedded-directory .terminal-content{padding:8px}
-.embedded-directory .terminal-content h2{font-size:19px}
-.embedded-directory .terminal-content p{font-size:11px;line-height:1.35}
-.embedded-directory .identity{gap:7px}
-.embedded-directory .identity>span{width:37px;height:37px;font-size:14px}
 @media(max-width:550px){
- .retro-icons{inset:6px auto auto 5px;grid-template-columns:repeat(2,75px);gap:3px}
+ .retro-icons{inset:6px auto auto 5px}
  .retro-icons button{width:75px}
- .retro-window{inset-inline:4px;bottom:52px}
- .retro-start{bottom:47px;width:min(235px,90%);grid-template-columns:1fr 1fr;max-height:calc(100% - 51px)}
+ .retro-window{inset-inline:4px;bottom:56px}
+ .retro-start{bottom:52px;width:min(235px,90%);grid-template-columns:1fr 1fr;max-height:calc(100% - 56px)}
  .retro-start>div{grid-column:1 / -1}
- .retro-desktop :is(.retro-taskbar,.retro-start,.retro-body) button,.retro-toolbar a{min-height:40px}
- .retro-window .retro-title button{min-height:32px;min-width:34px}
+ .retro-desktop :is(.retro-taskbar,.retro-start,.retro-body) button{min-height:44px}
+ .retro-desktop .retro-title button{min-height:44px;min-width:44px}
  .retro-copy{padding:7px}
- .embedded-directory .terminal-grid{grid-template-columns:75px 1fr}
- .embedded-directory .terminal-tabs button>span{display:none}
 }
+
+.reach-prompt{
+  position:fixed;inset:auto auto max(24px,env(safe-area-inset-bottom)) 50%;margin:0;
+  display:grid;gap:12px;padding:16px;width:min(400px,calc(100% - 24px));
+  color:var(--cream);border-top:2px solid var(--amber)
+}
+.reach-prompt:not([open]){display:none}
+.reach-prompt::backdrop{background:transparent}
+.reach-prompt h2{margin:4px 0 0;font-size:clamp(16px,3.5vw,20px)}
+.reach-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.reach-actions .action{justify-content:center;min-height:44px}
+.reach-actions .action:active{box-shadow:inset 0 2px 4px #10191c80}
+.featured-project.record{border-color:#a4b99d}
+.featured-project h3{font-size:clamp(22px,4vw,30px)}
+.featured-project a{font-weight:750}
 
 /* Readable beats and a restrained ending reveal */
 .film.black{animation:fade-in .24s ease-out}
@@ -465,6 +465,7 @@ kbd{padding:4px 5px;border:1px solid #b7cab56b;border-radius:3px;font:700 9px/1 
 .audit-report em{font-style:normal;font-weight:700;color:#79392d}
 .incident-report{margin-top:7px;color:#ffb69c;background:#362a28;padding:5px;font:800 9px/1.2 var(--mono)}
 .ending{animation:fade-in .82s ease-out}
+.ending:has(.hud-top){padding-top:max(72px,calc(env(safe-area-inset-top) + 56px))}
 .ending-card{animation:ending-arrive 1.65s cubic-bezier(.2,.76,.28,1) both}
 .ending-credit{animation:ending-arrive 1.15s .34s ease-out both}
 @keyframes ending-arrive{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}

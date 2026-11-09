@@ -8,7 +8,9 @@ const buffers=new Map<Sample,AudioBuffer>();
 const media=new Map<Sample,HTMLAudioElement>();
 let context: AudioContext | undefined;
 let master: GainNode | undefined;
-let music: GainNode | undefined;
+let music: {gain:GainNode;source:AudioBufferSourceNode} | undefined;
+let endingTrack: Promise<AudioBuffer> | undefined;
+let endingMusicRequested=false;
 let ambience: {out:GainNode; frequency:OscillatorNode; trucks:{gain:GainNode; pitch:OscillatorNode; pan:StereoPannerNode|null}[]} | undefined;
 let noise: AudioBuffer | undefined;
 let enabled=true, volume=.85, attempted=false, loading=false;
@@ -53,6 +55,7 @@ export function setAudioLevel(sound:boolean,level:number) {
     if(!enabled) el.pause();
   }
   if(!enabled) {
+    setEndingMusic(false);
     pending=null;
     if(typeof speechSynthesis!=='undefined') speechSynthesis.cancel();
   }
@@ -144,8 +147,8 @@ function playSample(name:Sample,side:number) {
 }
 
 function tone(hz:number,end:number,start:number,length:number,level:number,type:OscillatorType,output:AudioNode) {
-  if(!context) return;
-  const wave=context.createOscillator(), amp=context.createGain();
+  const audio=output.context;
+  const wave=audio.createOscillator(), amp=audio.createGain();
   wave.type=type;
   wave.frequency.setValueAtTime(hz,start);
   wave.frequency.exponentialRampToValueAtTime(end,start+length);
@@ -203,7 +206,7 @@ export function play(name:Effect,allow:boolean,side=0) {
 export function setHearingEffect(active:boolean) {
   if(active===hearingEffect) return;
   hearingEffect=active;
-  if(context&&music) music.gain.setTargetAtTime(active?.002:.8,context.currentTime,.065);
+  if(context&&music) music.gain.gain.setTargetAtTime(active?.002:.8,context.currentTime,.065);
 }
 
 export function updateAmbience(active:boolean,outside:boolean,trucks:readonly {distance:number;pan:number}[]) {
@@ -239,18 +242,44 @@ export function updateAmbience(active:boolean,outside:boolean,trucks:readonly {d
   });
 }
 
-export function warmMusic(allow:boolean) {
-  music?.disconnect();
-  music=undefined;
-  if(!context||!master||!allow||context.state!=='running') return;
-  music=context.createGain();
-  music.gain.value=hearingEffect?.002:.8;
-  music.connect(master);
-  const out=music, start=context.currentTime+.15;
+function renderEndingTrack(sampleRate:number) {
   const phrases=[[261.63,329.63,392,440],[220,261.63,329.63,392],[174.61,220,261.63,329.63],[196,246.94,293.66,392]];
+  const duration=1.72*phrases.length*2+.31;
+  const audio=new OfflineAudioContext(1,Math.ceil(duration*sampleRate),sampleRate);
   for(let repeat=0;repeat<2;repeat++) phrases.forEach((chord,index)=>{
-    const t=start+(index+repeat*4)*1.72;
-    chord.forEach((f,i)=>tone(f/2,f/2,t+.04*i,1.65,.04,'sine',out));
-    [0,2,1,3,2].forEach((note,i)=>tone(chord[note]*2,chord[note]*2,t+.32*i,.61,.055,'triangle',out));
+    const t=.10+(index+repeat*phrases.length)*1.72;
+    chord.forEach((f,i)=>tone(f/2,f/2,t+.04*i,1.65,.04,'sine',audio.destination));
+    [0,2,1,3,2].forEach((note,i)=>tone(chord[note]*2,chord[note]*2,t+.32*i,.61,.055,'triangle',audio.destination));
   });
+  return audio.startRendering();
+}
+
+export function setEndingMusic(active:boolean) {
+  endingMusicRequested=active;
+  if(!active) {
+    music?.source.stop();
+    music?.source.disconnect();
+    music?.gain.disconnect();
+    music=undefined;
+    return;
+  }
+  const audio=context, output=master;
+  if(!audio||!output||audio.state!=='running'||music) return;
+  void startEndingLoop(audio,output);
+}
+
+async function startEndingLoop(audio:AudioContext,output:GainNode) {
+  try {
+    const buffer=await (endingTrack??=renderEndingTrack(audio.sampleRate));
+    if(!endingMusicRequested||!enabled||audio.state!=='running'||music) return;
+    const source=audio.createBufferSource(),gain=audio.createGain();
+    source.buffer=buffer;
+    source.loop=true;
+    gain.gain.value=hearingEffect?.002:.8;
+    source.connect(gain).connect(output);
+    source.start();
+    music={gain,source};
+  } catch {
+    endingTrack=undefined;
+  }
 }

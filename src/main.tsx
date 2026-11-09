@@ -3,11 +3,11 @@ import { createRoot } from 'react-dom/client';
 import World, { type Markers } from './World';
 import Portfolio from './Portfolio';
 import { Action, Icon, Sheet } from './components';
-import { Clipboard, Ending, FilmOverlay, InspectionFocus } from './ShiftPanels';
+import { Clipboard, Ending, FilmOverlay, InspectionFocus, ReachPrompt } from './ShiftPanels';
 import { Workstation } from './Workstation';
-import { audioStatus, onAudioStatus, play, setAudioLevel, unlock, warmMusic } from './audio';
+import { audioStatus, onAudioStatus, play, setAudioLevel, setEndingMusic, unlock } from './audio';
 import { gear, isGear, machinePart, positions, type Target } from './map';
-import { equipped, nextStep, objective, observed, reset, save, startSession, usingCrossing, type Panel, type PortfolioTab, type Session } from './state';
+import { endingMusicAllowed, equipped, nextStep, objective, observed, reset, save, startSession, usingCrossing, type Panel, type PortfolioTab, type Session } from './state';
 import { continueFilm, gearAction, resolveReach, nearest, openNearby, say, skipFilm, turnHead } from './engine';
 import './style.css';
 
@@ -57,6 +57,10 @@ function App() {
   useEffect(()=>onAudioStatus(update),[update]);
   const resumePanel=useRef<Panel|null>(null);
   const wasLocked=useRef(false);
+  const soundStatus=audioStatus();
+  const endingMusic=endingMusicAllowed(s,resumePanel.current);
+  useEffect(()=>{setEndingMusic(endingMusic);},[endingMusic,soundStatus]);
+  useEffect(()=>()=>setEndingMusic(false),[]);
   const action=useCallback((fn:()=>void)=>{
     setAudioLevel(s.settings.sound,s.settings.volume);
     if(s.settings.sound) unlock();
@@ -135,9 +139,10 @@ function App() {
       }
       if(e.repeat) return;
       if(key==='escape') {
+        if(s.panel==='reach') return;
         e.preventDefault();
         if(s.film) return;
-        if(s.panel==='clipboard' || s.panel==='mail' || s.panel==='ending' || s.panel==='reach' || s.focus) close();
+        if(s.panel==='clipboard' || s.panel==='mail' || s.panel==='ending' || s.focus) close();
         else pause();
       }
       if(key==='c' && s.started && !s.film && (!s.panel || s.panel==='clipboard')) {
@@ -177,27 +182,27 @@ function App() {
     s.settings.sound=!s.settings.sound;
     setAudioLevel(s.settings.sound,s.settings.volume);
     if(s.settings.sound) {unlock();play('ui',true);}
-    if(s.panel==='ending') warmMusic(s.settings.sound);
     save(s);
   });
   const skip=()=>action(()=>skipFilm(s));
   const next=()=>action(()=>continueFilm(s));
   const keyHint=s.settings.lookKeys==='arrows'?'ARROWS':'Q/E + ↑↓';
-  return <main className={'game '+(touch?'touch':'desktop')+(s.settings.reduced?' reduced':'')} aria-label="Safety Quest">
-    <SceneBoundary><World session={s} keys={keys} markers={markers} update={update} touch={touch} monitor={monitor} paper={paper}/></SceneBoundary>
-    <div className={'grade '+(panel==='welcome'?'welcome-grade':'')} aria-hidden="true"/>
-    <header className="hud-top">
+  const hud=<header className="hud-top">
       <div className="brand"><span className="brand-mark"><Icon name="warning" size={20}/></span><span><b>SAFETY QUEST</b><small>THE TRAINING WORKS</small></span></div>
       <div className="hud-actions">
         {!touch&&(playing||panel==='welcome')&&<button className="control-toggle" aria-label="Switch control mode" onClick={switchControl}>
           <Icon name={s.settings.control==='trackpad'?'finger':'aim'} size={16}/><span>{s.settings.control==='trackpad'?'Trackpad':'Mouse look'}</span>
         </button>}
-        {s.settings.sound && audioStatus()==='blocked' ?
+        {s.settings.sound && soundStatus==='blocked' ?
           <button className="control-toggle" onClick={()=>action(()=>unlock())}><Icon name="speaker" size={16}/>Enable Sound</button>:
           <button className="icon-button" aria-pressed={s.settings.sound} aria-label={s.settings.sound?'Mute audio':'Unmute audio'} onClick={toggleSound}><Icon name={s.settings.sound?'speaker':'mute'}/></button>}
         <button className="icon-button" aria-label="Pause menu" disabled={!!s.film} onClick={pause}><Icon name="menu"/></button>
       </div>
-    </header>
+    </header>;
+  return <main className={'game '+(touch?'touch':'desktop')+(s.settings.reduced?' reduced':'')} aria-label="Safety Quest">
+    <SceneBoundary><World session={s} keys={keys} markers={markers} update={update} touch={touch} monitor={monitor} paper={paper}/></SceneBoundary>
+    <div className={'grade '+(panel==='welcome'?'welcome-grade':'')} aria-hidden="true"/>
+    {panel!=='ending'&&hud}
     {panel==='welcome'&&<div className="welcome">
       <div className="welcome-inner">
         <div className="eyebrow"><span/> AN INTERACTIVE PORTFOLIO EXPERIENCE</div>
@@ -210,8 +215,7 @@ function App() {
             say(s,s.notification||direction(s));
             save(s);
           })}>{s.checkpoint==='outside'&&!s.safety.crossed?'Enter the factory':'Continue the shift'} <Icon name="arrow"/></Action>
-          <button className="text-button" onClick={()=>portfolio('Project Case Study','welcome')}>Project Case Study</button>
-          <button className="text-button" onClick={()=>portfolio('About Me','welcome')}>View professional portfolio <span aria-hidden>↗</span></button>
+          <button className="text-button" onClick={()=>portfolio('About Me','welcome')}>View Portfolio</button>
           <a className="creator-link" href="https://ilhmnra.github.io/" target="_blank" rel="noreferrer">ilhmnra.github.io <span aria-hidden>↗</span></a>
         </div>
         <div className="control-hints">
@@ -256,7 +260,7 @@ function App() {
     {s.film&&<FilmOverlay s={s} next={next} skip={skip}/>}
     {panel==='pause'&&<Sheet code="VISITOR TERMINAL / PAUSED" title="Safety Quest" close={close} extra="pause-sheet">
       <div className="buttons"><Action kind="primary" onClick={close}>Resume <Icon name="arrow"/></Action></div>
-      <div className="pause-links">{(['About Me','CV / Résumé','Projects','Contact','Project Case Study'] as PortfolioTab[]).map(tab=><Action key={tab} onClick={()=>portfolio(tab,'pause')}>{tab}</Action>)}</div>
+      <div className="pause-links"><Action onClick={()=>portfolio('About Me','pause')}>View Portfolio</Action></div>
       <div className="buttons"><Action onClick={()=>action(()=>{s.panel='settings';})}>Controls &amp; Settings</Action><Action onClick={()=>action(()=>{s.panel='restart';})}>Restart Experience</Action></div>
       <p className="fine-print">Created by Aulia Ilham Nur Alfian</p>
     </Sheet>}
@@ -278,18 +282,12 @@ function App() {
     </Sheet>}
     {panel==='restart'&&<Sheet code="VISITOR TERMINAL / RESTART" title="Restart this shift?" close={close}>
       <p>Return to the outdoor arrival point and clear this shift’s training record.</p>
-      <div className="buttons"><Action kind="danger" onClick={()=>action(()=>{reset(s);warmMusic(false);setToast('');resumePanel.current=null;})}>Restart from arrival</Action><Action onClick={close}>Keep current shift</Action></div>
+      <div className="buttons"><Action kind="danger" onClick={()=>action(()=>{reset(s);setToast('');resumePanel.current=null;})}>Restart from arrival</Action><Action onClick={close}>Keep current shift</Action></div>
     </Sheet>}
     {s.started&&s.safety.clipboard&&<Clipboard s={s} act={action} close={close} paper={paper}/>}
     {panel==='mail'&&<Workstation s={s} act={action} close={close} monitor={monitor} clipboard={raiseClipboard}/>}
-    {panel==='reach'&&<section className="ending" role="dialog" aria-modal="true" aria-labelledby="reach-question">
-      <div className="ending-card">
-        <h2 id="reach-question">Are you sure you want to reach inside the press?</h2>
-        <Action kind="primary" onClick={()=>action(()=>resolveReach(s,true))}>Reach Inside</Action>
-        <Action onClick={()=>action(()=>resolveReach(s,false))}>Cancel</Action>
-      </div>
-    </section>}
-    {panel==='ending'&&<Ending explore={close} open={tab=>portfolio(tab,'ending')}/>}
+    {panel==='reach'&&<ReachPrompt choose={confirmed=>action(()=>resolveReach(s,confirmed))}/>}
+    {panel==='ending'&&<Ending controls={hud} explore={close} open={()=>portfolio('About Me','ending')}/>}
     {panel==='portfolio'&&<div className="terminal-layer"><Portfolio tab={s.portfolioTab} change={tab=>action(()=>{s.portfolioTab=tab;})} close={close}/></div>}
   </main>;
 }

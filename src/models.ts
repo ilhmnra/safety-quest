@@ -370,7 +370,7 @@ export function press(defective:boolean): Box[] {
   for(const x of [-.79,.79]) for(const y of [.23,.87]) b(x,y,1.202,.09,.09,.04,cream);
   // Separate control station, with real pushbutton faces and a status panel.
   b(.89,1.75,1.13,.51,1.44,.20,ink);
-  if(!defective) b(.91,1.705,1.27,.28,.18,.092,'#416d53');
+  b(.91,1.705,1.27,.28,.18,.092,'#416d53');
   b(.91,1.225,1.272,.31,.21,.095,'#6b302c');
   b(.86,2.235,1.25,.49,.24,.082,'#2f4a4e');
   b(0,1.92,-1.1,1.27,.83,.079,slate);

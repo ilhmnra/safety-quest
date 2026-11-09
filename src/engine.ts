@@ -1,6 +1,6 @@
 import { MathUtils } from 'three';
-import { play, setHearingEffect, warmMusic } from './audio';
-import { canContinue, filmStage, PPE_BEAT, PPE_CUES, PPE_FADE, ppeBeat, REACH_CUT, REACH_JOLT, ROAD_IMPACT_LEAD } from './cinematics';
+import { play, setHearingEffect } from './audio';
+import { canContinue, filmStage, machineCut, PPE_BEAT, PPE_CUES, PPE_FADE, ppeBeat, REACH_JOLT, ROAD_IMPACT_LEAD, START_BURST } from './cinematics';
 import { advanceTraffic, approachingLane, crossingThreat, dangerFilm, fromSouth, inTruckLane, roadOccupied, truckFrom } from './traffic';
 import { DESK, distance, gear, inCrossing, isGear, machinePart, onRoad, positions, PRESS, pressHazard, ROAD, route, solid, START, WALK_SPEED, type Gear, type Part, type Point, type Press, type Target } from './map';
 import { equipped, hasMail, nearCrossing, observed, recordIssues, recordName, nextStep, save, unsafePpe, type Inspection, type PreparationCheck, type Session } from './state';
@@ -84,13 +84,14 @@ export function targetAvailable(s:Session,target:Target) {
   const [press,part]=machine;
   if(part==='tag') return !s.safety.tagged;
   if(part==='reach') return !s.safety.tagged;
-  if(part==='start') return press==='a'&&nextStep(s.safety,'a')?.[0]==='cycle'&&s.pressMode==='idle';
+  if(part==='start') return press==='b'||(nextStep(s.safety,'a')?.[0]==='cycle'&&s.pressMode==='idle');
   return true;
 }
 
 function aimAt(s:Session,target:Target) {
   const [x,y,z]=positions[target].anchor;
   s.look=[turnTo(s.pos,[x,z]),Math.atan2(y-1.72,Math.max(.4,distance(s.pos,[x,z])))];
+  return s.look;
 }
 
 export function interact(s:Session,target:Target) {
@@ -141,7 +142,7 @@ export function interact(s:Session,target:Target) {
   } else {
     const [press,part]=machinePart(target)!;
     if(startPpeIncident(s,press)) return;
-    if(press==='b'&&nextStep(s.safety,'a')&&part!=='reach') {
+    if(press==='b'&&nextStep(s.safety,'a')&&part!=='reach'&&part!=='start') {
       say(s,'Complete the functional Press A exercise first.');
       return;
     }
@@ -152,8 +153,11 @@ export function interact(s:Session,target:Target) {
     }
     else if(part==='tag') tagPress(s);
     else if(part==='reach') {
-      aimAt(s,target);
-      if(press==='b'&&!s.safety.tagged) s.panel='reach';
+      if(press==='b'&&!s.safety.tagged) {
+        [s.yaw,s.pitch]=aimAt(s,target);
+        s.look=null;
+        s.panel='reach';
+      }
     } else {
       if(press==='a' && s.pressMode==='cycling') {
         say(s,'Keep clear while the press is moving.');
@@ -287,7 +291,7 @@ export function skipFilm(s:Session) {
   const film=s.film;
   if(!film || !s.seenFilms.has(film.kind)) return;
   if(film.kind==='near') film.time=film.cut;
-  else if(film.kind==='failure') film.time=film.reason==='reach'?REACH_CUT:2.55;
+  else if(film.kind==='failure') film.time=machineCut(film.reason);
   else if(film.kind==='ppe') {film.time=film.hazards.length*PPE_BEAT;setHearingEffect(false);}
   else {film.beat=3;film.time=0;}
 }
@@ -351,7 +355,11 @@ function tagPress(s:Session) {
 }
 
 function startPress(s:Session,press:Press) {
-  if(press!=='a'||!equipped(s.safety)||!targetAvailable(s,'a-start')) return;
+  if(press==='b') {
+    fail(s,'operation');
+    return;
+  }
+  if(!equipped(s.safety)||!targetAvailable(s,'a-start')) return;
   s.pressTime=0;
   s.pressMode='cycling';
   play('cycle',s.settings.sound);
@@ -415,7 +423,6 @@ export function reviewRecords(s:Session) {
   s.safety.reported=true;
   s.panel='ending';
   save(s);
-  warmMusic(s.settings.sound);
 }
 
 function roadStep(s:Session,next:Point) {
@@ -505,8 +512,9 @@ export function tick(s:Session,dt:number,keys:Set<string>,timelineDt=dt):boolean
         if(prev<cue&&film.time>=cue) play(beat.slot==='feet'?'impact':beat.slot==='eyes'?'shrapnel':'hearing',s.settings.sound);
       }
     }
-    if(film.kind==='failure' && film.reason==='reach' && prev<REACH_JOLT && film.time>=REACH_JOLT) {
-      play('impact',s.settings.sound);
+    if(film.kind==='failure') {
+      const cue=film.reason==='reach'?REACH_JOLT:START_BURST;
+      if(prev<cue&&film.time>=cue) play(film.reason==='reach'?'impact':'shrapnel',s.settings.sound);
     }
     return stage!==filmStage(s);
   }

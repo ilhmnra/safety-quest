@@ -403,16 +403,50 @@ test('reaching requires confirmation and cancel preserves inspection progress',(
   inspect(s,'b-reach');
   assert.equal(s.panel,'reach');
   assert.equal(s.film,null);
+  const view=[s.yaw,s.pitch];
   engine.resolveReach(s,false);
   assert.equal(s.panel,null);
   assert.equal(s.film,null);
+  assert.deepEqual([s.yaw,s.pitch],view);
   assert.deepEqual(s.safety.inspected.b,{stopInitial:true});
   inspect(s,'b-reach');
   engine.resolveReach(s,true);
   assert.equal(s.film?.reason,'reach');
+  const film=s.film;
+  engine.resolveReach(s,true);
+  engine.interact(s,'b-start');
+  assert.equal(s.film,film);
   engine.endFilm(s);
   assert.deepEqual(s.pos,map.PRESS);
   assert.deepEqual(s.safety.inspected.b,{stopInitial:true});
+});
+
+test('Press B START triggers its own incident before and after tagging without changing records',()=>{
+  const s=session();
+  prepare(s);
+  assert.equal(engine.targetAvailable(s,'b-start'),true);
+  inspect(s,'b-start');
+  assert.equal(s.film?.reason,'operation');
+  assert.equal(s.pressMode,'idle');
+  assert.deepEqual(s.safety.inspected,{a:{},b:{}});
+  tickFor(s,cinema.START_BURST);
+  assert.equal(cinema.filmStage(s),'machine-danger');
+  tickFor(s,cinema.START_CUT);
+  assert.equal(cinema.filmStage(s),'machine-black');
+  engine.continueFilm(s);
+  assert.deepEqual(s.pos,map.PRESS);
+
+  engine.interact(s,'tag');
+  completePress(s,'a');
+  completePress(s,'b');
+  document(s,'b');
+  const before=structuredClone(s.safety);
+  inspect(s,'b-start');
+  assert.equal(s.film?.reason,'operation');
+  engine.endFilm(s);
+  assert.deepEqual(s.safety,before);
+  assert.equal(s.pressMode,'idle');
+  assert.deepEqual(s.pos,map.PRESS);
 });
 
 test('opening the attachment precedes audit; omissions require correction',()=>{
@@ -458,8 +492,15 @@ test('guidance follows the clipboard order through every physical step',()=>{
   engine.interact(s,'tag');
   for(const press of ['a','b']) {
     assert.equal(state.checklist(press).length,10);
+    assert.deepEqual(state.checklist(press).slice(2,7).map(([, ,part])=>part),
+      ['front','guard','left','rear','right']);
     for(const [key,,part] of state.checklist(press)) {
       assert.equal(state.objective(s),press+'-'+part);
+      if(part==='guard') {
+        inspect(s,press+'-left');
+        assert.equal(s.safety.inspected[press].left,undefined);
+        assert.equal(state.objective(s),press+'-guard');
+      }
       inspect(s,press+'-'+part);
       if(part==='start') tickFor(s,3.6);
       assert.equal(s.safety.inspected[press][key],true);
@@ -467,6 +508,45 @@ test('guidance follows the clipboard order through every physical step',()=>{
     }
   }
   assert.equal(state.objective(s),'mail');
+});
+
+test('version 2 saves retain previously recorded sides when the guard moves earlier',()=>{
+  const inspected={a:{stopInitial:true,statusInitial:true,front:true,rear:true,left:true,right:true},b:{}};
+  const recorded={a:{rear:true,left:true},b:{}};
+  globalThis.localStorage={getItem:()=>JSON.stringify({
+    pressVersion:2,checkpoint:'press',safety:{inspected,recorded},
+  })};
+  try {
+    const s=state.startSession();
+    assert.deepEqual(s.safety.inspected,inspected);
+    assert.deepEqual(s.safety.recorded,recorded);
+    assert.equal(state.nextStep(s.safety,'a')[0],'guard');
+  } finally {delete globalThis.localStorage;}
+});
+
+test('ending music follows the ending across portfolio tabs, mute, pause and restart',()=>{
+  const s=session();
+  s.settings.sound=true;
+  s.panel='ending';
+  assert.equal(state.endingMusicAllowed(s,null),true);
+  s.panel='portfolio';
+  for(const tab of ['Projects','CV / Résumé','Contact']) {
+    s.portfolioTab=tab;
+    s.portfolioBack='ending';
+    assert.equal(state.endingMusicAllowed(s,null),true);
+  }
+  s.settings.sound=false;
+  assert.equal(state.endingMusicAllowed(s,null),false);
+  s.settings.sound=true;
+  s.portfolioBack='welcome';
+  assert.equal(state.endingMusicAllowed(s,null),false);
+  s.portfolioBack='pause';
+  assert.equal(state.endingMusicAllowed(s,null),false);
+  assert.equal(state.endingMusicAllowed(s,'ending'),true);
+  s.panel='restart';
+  assert.equal(state.endingMusicAllowed(s,'ending'),true);
+  state.reset(s);
+  assert.equal(state.endingMusicAllowed(s,null),false);
 });
 
 test('legacy press records reset while PPE and a collected tag survive migration',()=>{

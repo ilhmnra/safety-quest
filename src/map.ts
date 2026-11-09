@@ -65,7 +65,7 @@ const parts:Record<Part,{point:Point; anchor:Vec; hit:Vec}> = {
 };
 for(const press of ['a','b'] as const) {
   for(const part of pressParts) {
-    if(press==='a' && (part==='tag'||part==='reach') || press==='b' && part==='start') continue;
+    if(press==='a' && (part==='tag'||part==='reach')) continue;
     const {point,anchor,hit}=parts[part];
     positions[`${press}-${part}`]={
       point:[pressX[press]+point[0],PRESS_Z+point[1]],
