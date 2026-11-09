@@ -43,7 +43,7 @@ const Batch=memo(function Batch({boxes, shadows=true}:{boxes:Box[];shadows?:bool
     m.computeBoundingSphere();
   }}/>)}</>;
 });
-const modelA=press(true), modelB=press(false);
+const modelA=press(false), modelB=press(true);
 const modelTruckA=truck('#7a8d83'), modelTruckB=truck('#5e7776');
 const manager=person('manager'), engineering=person('engineering'), support=person('support');
 const skyVertex='varying vec3 v; void main(){v=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}';
@@ -276,7 +276,7 @@ function HeldProps({s}:{s:Session}) {
     if(h.visible && f) {
       const reach=T.MathUtils.smoothstep(f.time,.23,2.65);
       const trapped=T.MathUtils.smoothstep(f.time,REACH_JOLT,REACH_JOLT+.18);
-      const anchor=positions['a-reach'].anchor;
+      const anchor=positions['b-reach'].anchor;
       const depth=Math.max(.28,Math.min(.89,camera.position.distanceTo(offset.set(...anchor))-.32));
       h.position.copy(offset.set(.19-reach*.115,-.37+reach*.25-trapped*.095,-T.MathUtils.lerp(.28,depth,reach)).applyQuaternion(camera.quaternion).add(camera.position));
       h.quaternion.copy(camera.quaternion);
@@ -305,32 +305,43 @@ const fragmentShapes=Array.from({length:15},(_,i)=>({
 }));
 
 function PpeEffects({s}:{s:Session}) {
-  const feet=useRef<T.Group>(null), leg=useRef<T.Group>(null), shoe=useRef<T.Group>(null), falling=useRef<T.Group>(null), blood=useRef<T.Group>(null);
+  const feet=useRef<T.Group>(null), falling=useRef<T.Group>(null);
+  const legs=useRef<(T.Group|null)[]>([]);
+  const gait=useRef({x:s.pos[0],z:s.pos[1],phase:0,amount:0});
   const debris=useRef<T.Group>(null), flash=useRef<T.PointLight>(null);
   const canvas=s.film?.kind==='ppe'&&s.film.footwear==='canvas';
   const footTone=canvas?'#ab9272':'#c39a80';
-  useFrame(({camera})=>{
+  useFrame(({camera},dt)=>{
     const film=s.film, beat=ppeBeat(film);
-    if(film?.kind!=='ppe') return;
-    const yaw=turnTo(s.pos,[pressX[film.press],PRESS_Z]);
+    const yaw=film?.kind==='ppe'?turnTo(s.pos,[pressX[film.press],PRESS_Z]):s.yaw;
     const foot=feet.current!, metal=falling.current!;
-    foot.visible=beat?.slot==='feet';
-    if(foot.visible&&beat) {
-      foot.position.set(s.pos[0]-Math.sin(yaw)*1.55,.126,s.pos[1]-Math.cos(yaw)*1.55);
-      foot.rotation.y=yaw;
+    const impact=beat?.slot==='feet';
+    foot.visible=!!impact||(!film&&s.started&&!s.panel&&!s.focus&&s.pitch<-.46);
+    foot.position.set(camera.position.x,s.pos[1]<-.65?.126:0,camera.position.z);
+    foot.rotation.y=yaw;
+    metal.visible=!!impact;
+    const stride=gait.current;
+    const traveled=Math.min(.12,Math.hypot(s.pos[0]-stride.x,s.pos[1]-stride.z));
+    stride.x=s.pos[0]; stride.z=s.pos[1];
+    stride.phase+=traveled*9;
+    stride.amount=T.MathUtils.damp(stride.amount,traveled>.002?1:0,12,dt);
+    legs.current.forEach((leg,i)=>{
+      if(!leg) return;
+      const swing=impact?0:Math.sin(stride.phase+i*Math.PI)*stride.amount;
+      leg.rotation.x=swing*.24;
+      leg.position.y=1.04+Math.max(0,swing)*.045;
+    });
+    if(impact&&beat) {
       const fall=T.MathUtils.clamp((beat.time-PPE_FOOT_RELEASE)/(PPE_CUES.feet-PPE_FOOT_RELEASE),0,1);
-      metal.position.set(-.07,T.MathUtils.lerp(2.08,.10,fall**2),-.17);
+      metal.position.set(.14,T.MathUtils.lerp(2.08,.21,fall**2),T.MathUtils.lerp(-.78,-.38,fall));
       metal.rotation.set(.47*(1-fall),Math.min(beat.time,PPE_CUES.feet)*4,.31*(1-fall));
-      const crush=T.MathUtils.smoothstep(beat.time,PPE_CUES.feet-.025,PPE_CUES.feet+.15);
-      shoe.current!.scale.y=1-.73*crush;
-      leg.current!.rotation.x=-.12*crush;
-      leg.current!.position.y=-.043*crush;
-      blood.current!.visible=beat.time>=PPE_CUES.feet&&beat.time<PPE_CUES.feet+.48;
+      legs.current[1]!.rotation.x=-.06*T.MathUtils.smoothstep(beat.time,PPE_CUES.feet,PPE_CUES.feet+.1);
     }
+    const press=film?.kind==='ppe'?film.press:'a';
     const burst=debris.current!;
     const age=beat?.slot==='eyes'?beat.time-PPE_CUES.eyes:-1;
     burst.visible=age>=0&&age<.75;
-    const sourceX=pressX[film.press]+Math.sin(yaw)*1.30,sourceZ=PRESS_Z+Math.cos(yaw)*1.30;
+    const sourceX=pressX[press]+Math.sin(yaw)*1.30,sourceZ=PRESS_Z+Math.cos(yaw)*1.30;
     flash.current!.position.set(sourceX,1.48,sourceZ);
     flash.current!.intensity=burst.visible&&!s.settings.reduced?12*(1-Math.min(1,age/.17)):0;
     if(burst.visible) burst.children.forEach((bit,i)=>{
@@ -342,21 +353,18 @@ function PpeEffects({s}:{s:Session}) {
   });
   return <>
     <group ref={feet} visible={false}>
-      <group ref={leg} position={[.13,0,0]}>
-        <mesh geometry={cube} position={[0,.79,.51]} rotation-x={.54} scale={[.25,.59,.23]} material={material('#566e70')}/>
-        <mesh geometry={cube} position={[0,.36,.30]} rotation-x={.34} scale={[.194,.53,.175]} material={material('#4c6266')}/>
-        <GlowingBox position={[0,.54,.37]} size={[.219,.13,.21]} color="#677c78"/>
-        <GlowingBox position={[.092,.76,.565]} size={[.051,.19,.09]} color="#798d82"/>
-      </group>
-      <group ref={shoe} position={[.13,0,0]}>
-        <GlowingBox position={[0,.058,.14]} size={[.24,.116,.52]} color={footTone}/>
-        {canvas&&<GlowingBox position={[0,.015,.13]} size={[.25,.030,.54]} color="#3c3731"/>}
-      </group>
-      <group ref={falling}><mesh geometry={tireGeometry} scale={[.91,.40,.91]} material={material('#4e6064')}/><Batch boxes={gearTeeth} shadows={false}/>
-        <mesh geometry={hubGeometry} position={[0,.09,0]} material={material('#9ba7a0')}/>
-      </group>
-      <group ref={blood} visible={false}>
-        {[[-.21,.16],[.29,.29],[.39,.13],[.24,.40],[.44,.25]].map(([x,z],i)=><GlowingBox key={i} position={[x,.013,z]} size={[.039,.018,.035]} color={i%2?'#a9443e':'#c15c4a'}/>)}
+      <GlowingBox position={[0,1.16,.02]} size={[.55,.34,.30]} color="#4c6266"/>
+      <GlowingBox position={[0,1.08,-.01]} size={[.55,.07,.31]} color="#343e40"/>
+      {[-.14,.14].map((x,i)=><group key={x} ref={g=>{legs.current[i]=g;}} position={[x,1.04,0]}>
+        <mesh geometry={cube} position={[0,-.24,-.065]} rotation-x={.24} scale={[.245,.56,.25]} material={material('#566e70')}/>
+        <GlowingBox position={[0,-.49,-.13]} size={[.218,.16,.22]} color="#677c78"/>
+        <mesh geometry={cube} position={[0,-.72,-.118]} rotation-x={-.05} scale={[.195,.47,.18]} material={material('#4c6266')}/>
+        <GlowingBox position={[0,-.974,-.218]} size={[.24,.132,.43]} color={s.safety.ppe.includes('boots')?'#343a39':footTone}/>
+      </group>)}
+      <group ref={falling} visible={false}>
+        <mesh geometry={hubGeometry} position={[0,.075,0]} material={material(steel)} receiveShadow/>
+        <mesh geometry={tireGeometry} scale={[.91,.40,.91]} material={material('#4e6064')} castShadow receiveShadow/>
+        <Batch boxes={gearTeeth}/>
       </group>
     </group>
     <group ref={debris} visible={false}>{fragmentShapes.map(({scale},i)=><mesh key={i} geometry={cube} scale={[scale,scale*.58,scale*1.5]} material={material(i%4===0?lamp:'#a4a99c')}/>)}</group>
@@ -368,46 +376,46 @@ function Machines({s}:{s:Session}) {
   const ram=useRef<Partial<Record<Press,T.Group>>>({});
   const beacon=useRef<T.Mesh>(null);
   const controls=useRef<Partial<Record<Target,T.Group>>>({});
-  useFrame(({clock})=>{
+  useFrame(()=>{
     const t=s.pressTime;
     const stroke=s.pressMode==='cycling' ? Math.sin(Math.PI*T.MathUtils.clamp((t-.37)/2.45,0,1))**2 : 0;
-    ram.current.b!.position.y=-stroke*.63;
+    ram.current.a!.position.y=-stroke*.63;
     const f=s.film;
     if(f?.kind==='failure'&&f.reason==='reach') {
       const strike=T.MathUtils.smoothstep(f.time,REACH_JOLT,REACH_JOLT+.19);
-      ram.current.a!.position.y=-.10*Math.sin(Math.min(1,f.time/2.5)*Math.PI)-.61*strike;
-    } else ram.current.a!.position.y=s.stoppedA?0:-(Math.sin(Math.min(1,s.faultTime)*Math.PI)**2)*(.10+.03*Math.sin(s.faultTime*42));
+      ram.current.b!.position.y=-.10*Math.sin(Math.min(1,f.time/2.5)*Math.PI)-.61*strike;
+    } else ram.current.b!.position.y=0;
     for(const [id,button] of Object.entries(controls.current)) {
       const pressed=s.controlPress?.target===id && s.controlPress.until>s.time;
       button.position.z=T.MathUtils.lerp(button.position.z,pressed?1.29:1.338,.34);
     }
-    beacon.current!.material=material(s.safety.tagged || (!s.stoppedA && Math.sin(clock.elapsedTime*13)>.1)?alert:'#87724d');
+    beacon.current!.material=material(s.safety.tagged?alert:'#87724d');
   });
   return <>{(['a','b'] as const).map(id=>{
     const a=id==='a';
-    const status=a?(s.safety.tagged?'TAGGED':s.stoppedA?'STOPPED':'FAULT'):
-      s.pressMode==='cycling'?'CYCLING':s.pressMode==='cycled'?'RAM HOME':'STOPPED';
+    const status=a?(s.pressMode==='cycling'?'CYCLING':s.pressMode==='cycled'?'RAM HOME':'STOPPED'):
+      s.safety.tagged?'OUT OF SERVICE':'STOPPED';
     return <group key={id} position={[pressX[id],.105,PRESS_Z]}>
       <Batch boxes={a?modelA:modelB}/>
-      <Sign position={[0,3.117,1.22]} w={1.51} h={.385} title={a?'PRESS A':'PRESS B'} sub={a?'MECHANICAL / 01':'TRAINING / 02'}/>
+      <Sign position={[0,3.117,1.22]} w={1.51} h={.385} title={a?'PRESS A':'PRESS B'} sub={a?'FUNCTIONAL TRAINING PRESS':'DEFECTIVE TRAINING PRESS'}/>
       <Sign position={[.86,2.235,1.298]} w={.47} h={.19} title={status} sub="SIMULATION"/>
-      {(['start','stop'] as const).map(part=>{
-        const running=a?!s.stoppedA:s.pressMode==='cycling';
+      {(['start','stop'] as const).filter(part=>a||part==='stop').map(part=>{
+        const running=a&&s.pressMode==='cycling';
         return <group key={part} position={[.91,part==='start'?1.705:1.225,1.338]} ref={g=>{if(g)controls.current[(id+'-'+part) as Target]=g;}}>
           <GlowingBox position={[0,0,0]} size={[.22,.128,.045]} color={part==='start'?(running?tealLamp:'#719782'):(running?'#ae594b':alert)}/>
         </group>;
       })}
-      <Sign position={[.91,1.53,1.257]} w={.29} h={.065} title="START"/>
+      {a&&<Sign position={[.91,1.53,1.257]} w={.29} h={.065} title="START"/>}
       <Sign position={[.91,1.05,1.257]} w={.29} h={.065} title="STOP"/>
-      {a ? <mesh ref={beacon} geometry={cube} position={[.8,3.91,.36]} scale={[.22,.1,.19]} material={material('#87724d')}/> :
+      {!a ? <mesh ref={beacon} geometry={cube} position={[.8,3.91,.36]} scale={[.22,.1,.19]} material={material('#87724d')}/> :
         <GlowingBox position={[.8,3.91,.36]} size={[.22,.1,.19]} color={s.pressMode==='cycling'?lamp:tealLamp}/>}
       <group ref={g=>{if(g)ram.current[id]=g;}}>
         <GlowingBox position={[0,2.15,.16]} size={[.31,.51,.36]} color="#a3a998"/>
         <GlowingBox position={[0,1.896,.16]} size={[.65,.16,.58]} color={slate}/>
         <GlowingBox position={[0,1.79,.16]} size={[.44,.086,.41]} color="#b8b7a4"/>
       </group>
-      {a&&<Sign position={[-.95,1.54,1.29]} w={.39} h={.115} title="TAG HOOK" sub="REPORT DEFECTS"/>}
-      {a&&s.safety.tagged&&<TagModel at={[-.95,1.19,1.38]} tilt={-.17}/>}
+      {!a&&<Sign position={[-.95,1.54,1.29]} w={.39} h={.115} title="TAG HOOK" sub="REPORT DEFECTS"/>}
+      {!a&&s.safety.tagged&&<TagModel at={[-.95,1.19,1.38]} tilt={-.17}/>}
     </group>;
   })}</>;
 }
@@ -756,18 +764,14 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper,turnCue}:Scen
       yaw=turnTo(s.pos,[pressX[f.press],PRESS_Z]);
       pitch=-.07;
       if(beat?.slot==='feet') {
-        const framing=T.MathUtils.smoothstep(beat.time,.06,.48);
-        x+=(Math.sin(yaw)*.49-Math.cos(yaw)*.45)*framing;
-        z+=(Math.cos(yaw)*.49+Math.sin(yaw)*.45)*framing;
-        yaw=turnTo([x,z],[s.pos[0]-Math.sin(yaw)*1.55,s.pos[1]-Math.cos(yaw)*1.55]);
-        pitch=T.MathUtils.lerp(-.12,-.62,T.MathUtils.smoothstep(beat.time,.40,1.02));
+        pitch=T.MathUtils.lerp(-.18,-1.27,T.MathUtils.smoothstep(beat.time,.16,1.02));
       }
       if(beat&&!s.settings.reduced&&beat.time>=PPE_CUES[beat.slot]) {
         const age=beat.time-PPE_CUES[beat.slot];
         y+=Math.sin(age*32)*Math.max(0,.06-age*.17);
       }
     } else if(f?.kind==='failure' && f.reason==='reach') {
-      const [ax,ay,az]=positions['a-reach'].anchor;
+      const [ax,ay,az]=positions['b-reach'].anchor;
       yaw=turnTo([x,z],[ax,az]);pitch=Math.atan2(ay-y,distance([x,z],[ax,az]));
       if(!s.settings.reduced && f.time>REACH_JOLT && f.time<REACH_JOLT+.35)
         pitch-=.12*Math.sin(Math.PI*(f.time-REACH_JOLT)/.35);
@@ -952,7 +956,6 @@ function Stage(props:SceneProps & {high:boolean}) {
     <Machines s={s}/>
     <Preparation s={s}/>
     <HeldProps s={s}/>
-    {s.film?.kind==='ppe'&&<PpeEffects s={s}/>}
     {office&&<Office s={s}/> }
     <Sign position={[0,3.69,.769]} w={9.97} h={1.16} title="SAFETY TRAINING CENTER" sub="THE TRAINING WORKS   /   VISITOR ENTRANCE" kind="main"/>
     <Sign position={[-10.6,2.16,19.65]} w={2.34} h={.6} title="SECURITY" sub="VISITOR CHECK-IN"/>
@@ -963,6 +966,7 @@ function Stage(props:SceneProps & {high:boolean}) {
     {s.panel!=='mail'&&<Sign position={[7.6,1.92,-11.405]} w={1.46} h={1.09} title={hasMail(s.safety)&&!s.safety.mailDisposition?'NEW MESSAGE':'WORKS 98'} sub="LOCAL TRAINING TERMINAL"/>}
     {!s.started && <Html position={[0,.08,18.1]} center style={{pointerEvents:'none'}}><div className="world-beacon" aria-hidden="true"/></Html>}
     <Runner {...props}/>
+    <PpeEffects s={s}/>
   </>;
 }
 export default function World(props:Props) {

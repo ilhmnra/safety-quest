@@ -3,7 +3,7 @@ import { play, setHearingEffect, warmMusic } from './audio';
 import { canContinue, filmStage, PPE_BEAT, PPE_CUES, PPE_FADE, ppeBeat, REACH_CUT, REACH_JOLT, ROAD_IMPACT_LEAD } from './cinematics';
 import { advanceTraffic, approachingLane, crossingThreat, dangerFilm, fromSouth, inTruckLane, roadOccupied, truckFrom } from './traffic';
 import { DESK, distance, gear, inCrossing, isGear, machinePart, onRoad, positions, PRESS, pressHazard, ROAD, route, solid, START, WALK_SPEED, type Gear, type Part, type Point, type Press, type Target } from './map';
-import { equipped, hasMail, nearCrossing, observed, recordIssues, recordName, safeToStart, save, unsafePpe, type Inspection, type PreparationCheck, type Session } from './state';
+import { equipped, hasMail, nearCrossing, observed, recordIssues, recordName, nextStep, save, unsafePpe, type Inspection, type PreparationCheck, type Session } from './state';
 
 const ROAD_EDGE_BUFFER=.02;
 
@@ -84,7 +84,7 @@ export function targetAvailable(s:Session,target:Target) {
   const [press,part]=machine;
   if(part==='tag') return !s.safety.tagged;
   if(part==='reach') return !s.safety.tagged;
-  if(part==='start') return press==='a'?s.stoppedA&&!s.safety.tagged:s.pressMode==='idle';
+  if(part==='start') return press==='a'&&nextStep(s.safety,'a')?.[0]==='cycle'&&s.pressMode==='idle';
   return true;
 }
 
@@ -94,6 +94,7 @@ function aimAt(s:Session,target:Target) {
 }
 
 export function interact(s:Session,target:Target) {
+  if(s.film || s.panel==='reach') return;
   if((target==='tag'||target==='clipboard') && !targetAvailable(s,target)) return;
   s.nav=null;
   s.focus=null;
@@ -140,6 +141,10 @@ export function interact(s:Session,target:Target) {
   } else {
     const [press,part]=machinePart(target)!;
     if(startPpeIncident(s,press)) return;
+    if(press==='b'&&nextStep(s.safety,'a')&&part!=='reach') {
+      say(s,'Complete the functional Press A exercise first.');
+      return;
+    }
     if(part==='start'||part==='stop') {
       s.controlPress={target,until:s.time+.24};
       if(part==='start') startPress(s,press);
@@ -148,9 +153,9 @@ export function interact(s:Session,target:Target) {
     else if(part==='tag') tagPress(s);
     else if(part==='reach') {
       aimAt(s,target);
-      fail(s,'reach');
+      if(press==='b'&&!s.safety.tagged) s.panel='reach';
     } else {
-      if(press==='b' && s.pressMode==='cycling') {
+      if(press==='a' && s.pressMode==='cycling') {
         say(s,'Keep clear while the press is moving.');
         return;
       }
@@ -273,9 +278,7 @@ export function endFilm(s:Session) {
   } else {
     s.pos=[...PRESS];
     s.checkpoint='press';
-    s.stoppedA=true;
-    s.pressMode='idle';
-    s.pressTime=0;
+
   }
   save(s);
 }
@@ -322,61 +325,46 @@ function finishTraining(s:Session) {
   say(s,"You've got mail!");
 }
 
+export function resolveReach(s:Session,confirmed:boolean) {
+  if(s.panel!=='reach'||s.film) return;
+  s.panel=null;
+  if(confirmed&&!s.safety.tagged) fail(s,'reach');
+}
+
+function performStep(s:Session,press:Press,part:Part) {
+  const step=nextStep(s.safety,press);
+  if(step?.[2]!==part) return false;
+  record(s,press,step[0]);
+  if(hasMail(s.safety)&&!s.safety.mailDisposition) finishTraining(s);
+  return true;
+}
+
 function tagPress(s:Session) {
   if(s.safety.tagged) return;
   if(!s.safety.tagHeld) { say(s,'Pick up an out-of-service tag from the preparation station.'); return; }
-  if(!s.stoppedA || !(s.safety.inspected.a.secured||s.safety.inspected.a.shutdown)) { say(s,'Use the physical STOP control before attaching the tag.'); return; }
-  if(!s.safety.inspected.a.guard) { say(s,'Examine the tooling guard and locate the obstruction first.'); return; }
+  const step=nextStep(s.safety,'b');
+  if(step?.[2]!=='tag') { say(s,step?.[3]??'Complete the Press B inspection.'); return; }
   s.safety.tagHeld=false;
   s.safety.tagged=true;
-  record(s,'a','tagged');
+  performStep(s,'b','tag');
   play('switch',s.settings.sound);
-  if(hasMail(s.safety)) finishTraining(s);
-  else say(s,'Tag attached to Press A. Verify its final status on the display.');
 }
 
 function startPress(s:Session,press:Press) {
-  if(press==='a') {
-    if(s.safety.tagged || !s.stoppedA) return;
-    if(!equipped(s.safety)) { say(s,'Wear the required PPE before using the controls.'); return; }
-    s.stoppedA=false;
-    s.faultTime=0;
-    delete s.safety.inspected.a.shutdown;
-    delete s.safety.inspected.a.secured;
-    save(s);
-    play('strain',s.settings.sound);
-    say(s,'Press A stalled. Use STOP and keep hands out of the tooling.');
-  } else if(!safeToStart(s.safety) || s.pressMode!=='idle') {
-    fail(s,'operation');
-  } else {
-    s.pressTime=0;
-    s.pressMode='cycling';
-    play('cycle',s.settings.sound);
-    say(s,'Training cycle in progress. Keep clear of the tooling.');
-  }
+  if(press!=='a'||!equipped(s.safety)||!targetAvailable(s,'a-start')) return;
+  s.pressTime=0;
+  s.pressMode='cycling';
+  play('cycle',s.settings.sound);
+  say(s,'Training cycle in progress. Keep clear of the tooling.');
 }
 function stopPress(s:Session,press:Press) {
   play('switch',s.settings.sound);
   if(press==='a') {
-    s.stoppedA=true;
-    record(s,'a','stopped');
-    record(s,'a','secured');
-    say(s,'Press A is stopped. Servicing requires authorized lockout/tagout.');
-  } else if(s.pressMode==='cycling') {
     s.pressMode='idle';
     s.pressTime=0;
-    say(s,'Cycle interrupted. Complete a full cycle before recording shutdown.');
-  } else if(s.pressMode==='cycled') {
-    s.pressMode='idle';
-    s.pressTime=0;
-    s.safety.completed=true;
-    record(s,'b','shutdown');
-    if(hasMail(s.safety) && !s.safety.mailDisposition) finishTraining(s);
-    else say(s,'Press B is shut down.');
-  } else {
-    record(s,'b','stopped');
-    say(s,'Press B is stopped.');
   }
+  performStep(s,press,'stop');
+  say(s,'Press '+press.toUpperCase()+' is stopped. Servicing requires authorized energy isolation.');
 }
 
 function inspect(s:Session,target:Target) {
@@ -390,17 +378,8 @@ function inspect(s:Session,target:Target) {
   const machine=machinePart(target);
   if(!machine) return;
   const [press,part]=machine;
-  if(part==='guard' && press==='b') s.safety.inspected.b.noDefects=true;
-  if(part==='status') {
-    if(press==='a' ? s.stoppedA : s.pressMode==='idle') record(s,press,'stopped');
-    if(press==='a'&&s.stoppedA&&s.safety.tagged&&!s.safety.inspected.a.shutdown) {
-      record(s,'a','shutdown');
-      if(hasMail(s.safety)&&!s.safety.mailDisposition) finishTraining(s);
-      else say(s,'Press A is stopped and tagged out.');
-    }
-    return;
-  }
-  if(part==='front'||part==='rear'||part==='left'||part==='right'||part==='guard') record(s,press,part);
+  if(part==='status'&&press==='a'&&s.pressMode!=='idle') return;
+  performStep(s,press,part);
 }
 
 export function mailDecision(s:Session,decision:'report'|'ignore'|'open') {
@@ -504,7 +483,7 @@ export function tick(s:Session,dt:number,keys:Set<string>,timelineDt=dt):boolean
     (s.panel==='portfolio' && (s.portfolioBack==='pause'||s.portfolioBack==='ending'));
   if(paused) return false;
   s.time+=dt;
-  if(s.panel==='ending') return false;
+  if(s.panel==='ending' || s.panel==='reach') return false;
   const film=s.film;
   const stage=filmStage(s);
   if(stage!=='near-black') advanceTraffic(s,timelineDt);
@@ -534,12 +513,11 @@ export function tick(s:Session,dt:number,keys:Set<string>,timelineDt=dt):boolean
   if(!onRoad(s.pos) && s.gaze.curb && !nearCrossing(s.pos)) resetCrossing(s);
   refreshCrossing(s);
   let update=false;
-  if(!s.stoppedA) s.faultTime+=dt;
   if(s.pressMode==='cycling') {
     s.pressTime+=dt;
     if(s.pressTime>=3.35) {
       s.pressMode='cycled';
-      record(s,'b','cycle');
+      record(s,'a','cycle');
       say(s,'Ram returned. Use the red STOP control to finish the simulation.');
       update=true;
     }

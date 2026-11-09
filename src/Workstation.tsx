@@ -26,6 +26,7 @@ export function Workstation({s,act,close,monitor,clipboard}:Props) {
       <section className="retro-desktop" role="dialog" aria-modal="true" aria-label="Works OS workstation">
         <div className="retro-icons" aria-label="Desktop icons" aria-hidden={hideIcons}>
           <button disabled={hideIcons} onClick={()=>go('inbox')}><Icon name="mail" size={29}/><span>Works Mail</span>{unread&&<small>1 new</small>}</button>
+          <button disabled={hideIcons} onClick={()=>act(()=>{s.portfolioTab='Project Case Study';s.desktop='portfolio';})}>Project Case Study</button>
           <button disabled={hideIcons} onClick={()=>go('portfolio')}><span className="retro-folder" aria-hidden="true"/>Portfolio</button>
           <button disabled={hideIcons} onClick={()=>go('cv')}><span className="retro-document" aria-hidden="true">PDF</span>Résumé</button>
           <button disabled={hideIcons} onClick={()=>go('contact')}><span className="retro-document" aria-hidden="true">@</span>Contact</button>

@@ -3,7 +3,7 @@ import type { PortfolioTab } from './state';
 
 const original='https://ilhmnra.github.io/';
 const resume=new URL('./Aulia-Ilham-Resume.pdf',document.baseURI).href;
-export const tabs:PortfolioTab[]=['About Me','Work Experience','Projects','Skills','CV / Résumé','Contact'];
+export const tabs:PortfolioTab[]=['About Me','Work Experience','Projects','Skills','CV / Résumé','Contact','Project Case Study'];
 
 function Link({href,children}:{href:string;children:React.ReactNode}) {
   return <a href={href} target="_blank" rel="noopener noreferrer">{children} <span aria-hidden>↗</span></a>;
@@ -37,7 +37,14 @@ export default function Portfolio({tab,change,close,embedded=false}:{tab:Portfol
           <h2>Selected Projects</h2>
           <div className="record"><span className="record-label">01 / INTERNAL BUSINESS SYSTEM</span><h3>Etrained</h3><p>An employee training administration system that brings scheduling, registration, approvals, records, and reporting into one workflow.</p><Link href={original+'projects/etrained/'}>Read the case study</Link></div>
           <div className="record"><span className="record-label">02 / PENS AGILE TEAM PRODUCT</span><h3>Countlorie</h3><p>A mobile and web calorie tracker for daily targets, meals, and portions. The team delivered it through Agile Product-Based Learning and published it on Google Play.</p><Link href={original+'projects/countlorie/'}>Read the case study</Link></div>
-          <div className="record"><span className="record-label">03 / INTERACTIVE WEB EXPERIENCE</span><h3>Safety Quest</h3><p>This explorable voxel factory uses a continuous 3D world to teach fictional workplace safety decisions and introduce the portfolio.</p></div>
+          <div className="record"><span className="record-label">03 / INTERACTIVE WEB EXPERIENCE</span><h3>Safety Quest</h3><p>This explorable voxel factory uses a continuous 3D world to teach fictional workplace safety decisions and introduce the portfolio.</p><button onClick={()=>change('Project Case Study')}>Project Case Study</button></div>
+        </>}
+        {tab==='Project Case Study' && <>
+          <h2>Safety Quest — Reimagining Manufacturing Safety Training Through Interactive Learning</h2>
+          <p>Independent concept by Aulia Ilham Nur Alfian, inspired by exposure to training administration at PT Panasonic Manufacturing Indonesia.</p>
+          <div className="record"><h3>Design</h3><p>A reusable browser prototype for recurring onboarding. Players explore a fictional factory, practice on a functional press before inspecting a defective one, and manually document their actions. Short simulated incidents explain risky decisions and offer checkpoint retries.</p></div>
+          <div className="record"><h3>Technology and limits</h3><p>React, TypeScript, Three.js and React Three Fiber power the simulation. It requires a compatible WebGL browser. Learning outcomes have yet to be validated, and the prototype does not provide certification.</p></div>
+          <Link href={original+'projects/safety-quest/'}>Read Full Case Study</Link>
         </>}
         {tab==='Skills' && <><h2>Tools &amp; Skills</h2>{skills.map(([group,...tags])=><div className="record" key={group}><h3>{group}</h3><ul className="chips">{tags.map(tag=><li key={tag}>{tag}</li>)}</ul></div>)}</>}
         {tab==='CV / Résumé' && <>

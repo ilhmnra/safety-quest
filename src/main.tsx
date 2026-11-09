@@ -7,8 +7,8 @@ import { Clipboard, Ending, FilmOverlay, InspectionFocus } from './ShiftPanels';
 import { Workstation } from './Workstation';
 import { audioStatus, onAudioStatus, play, setAudioLevel, unlock, warmMusic } from './audio';
 import { gear, isGear, machinePart, positions, type Target } from './map';
-import { equipped, objective, observed, reset, save, startSession, usingCrossing, type Panel, type PortfolioTab, type Session } from './state';
-import { continueFilm, gearAction, nearest, openNearby, say, skipFilm, turnHead } from './engine';
+import { equipped, nextStep, objective, observed, reset, save, startSession, usingCrossing, type Panel, type PortfolioTab, type Session } from './state';
+import { continueFilm, gearAction, resolveReach, nearest, openNearby, say, skipFilm, turnHead } from './engine';
 import './style.css';
 
 function label(target:Target) {
@@ -30,6 +30,11 @@ function direction(s:Session) {
   if(active==='ppe') return 'Find the PPE cabinet inside.';
   if(s.safety.reported) return 'The training works are open to explore.';
   if(active==='mail') return s.safety.mailDisposition?'Review your inspection clipboard.':'A message arrived at the workstation.';
+  const machine=machinePart(active);
+  if(machine) {
+    if(machine[0]==='a'&&s.pressMode==='cycling') return 'Wait for the ram to return.';
+    return `Press ${machine[0].toUpperCase()} · ${nextStep(s.safety,machine[0])?.[3]}`;
+  }
   return label(active);
 }
 
@@ -132,7 +137,7 @@ function App() {
       if(key==='escape') {
         e.preventDefault();
         if(s.film) return;
-        if(s.panel==='clipboard' || s.panel==='mail' || s.panel==='ending' || s.focus) close();
+        if(s.panel==='clipboard' || s.panel==='mail' || s.panel==='ending' || s.panel==='reach' || s.focus) close();
         else pause();
       }
       if(key==='c' && s.started && !s.film && (!s.panel || s.panel==='clipboard')) {
@@ -202,8 +207,10 @@ function App() {
         <div className="welcome-actions">
           <Action kind="primary" onClick={()=>action(()=>{
             s.started=true;s.panel=null;
-            say(s,direction(s));
+            say(s,s.notification||direction(s));
+            save(s);
           })}>{s.checkpoint==='outside'&&!s.safety.crossed?'Enter the factory':'Continue the shift'} <Icon name="arrow"/></Action>
+          <button className="text-button" onClick={()=>portfolio('Project Case Study','welcome')}>Project Case Study</button>
           <button className="text-button" onClick={()=>portfolio('About Me','welcome')}>View professional portfolio <span aria-hidden>↗</span></button>
           <a className="creator-link" href="https://ilhmnra.github.io/" target="_blank" rel="noreferrer">ilhmnra.github.io <span aria-hidden>↗</span></a>
         </div>
@@ -249,7 +256,7 @@ function App() {
     {s.film&&<FilmOverlay s={s} next={next} skip={skip}/>}
     {panel==='pause'&&<Sheet code="VISITOR TERMINAL / PAUSED" title="Safety Quest" close={close} extra="pause-sheet">
       <div className="buttons"><Action kind="primary" onClick={close}>Resume <Icon name="arrow"/></Action></div>
-      <div className="pause-links">{(['About Me','CV / Résumé','Projects','Contact'] as PortfolioTab[]).map(tab=><Action key={tab} onClick={()=>portfolio(tab,'pause')}>{tab}</Action>)}</div>
+      <div className="pause-links">{(['About Me','CV / Résumé','Projects','Contact','Project Case Study'] as PortfolioTab[]).map(tab=><Action key={tab} onClick={()=>portfolio(tab,'pause')}>{tab}</Action>)}</div>
       <div className="buttons"><Action onClick={()=>action(()=>{s.panel='settings';})}>Controls &amp; Settings</Action><Action onClick={()=>action(()=>{s.panel='restart';})}>Restart Experience</Action></div>
       <p className="fine-print">Created by Aulia Ilham Nur Alfian</p>
     </Sheet>}
@@ -275,6 +282,13 @@ function App() {
     </Sheet>}
     {s.started&&s.safety.clipboard&&<Clipboard s={s} act={action} close={close} paper={paper}/>}
     {panel==='mail'&&<Workstation s={s} act={action} close={close} monitor={monitor} clipboard={raiseClipboard}/>}
+    {panel==='reach'&&<section className="ending" role="dialog" aria-modal="true" aria-labelledby="reach-question">
+      <div className="ending-card">
+        <h2 id="reach-question">Are you sure you want to reach inside the press?</h2>
+        <Action kind="primary" onClick={()=>action(()=>resolveReach(s,true))}>Reach Inside</Action>
+        <Action onClick={()=>action(()=>resolveReach(s,false))}>Cancel</Action>
+      </div>
+    </section>}
     {panel==='ending'&&<Ending explore={close} open={tab=>portfolio(tab,'ending')}/>}
     {panel==='portfolio'&&<div className="terminal-layer"><Portfolio tab={s.portfolioTab} change={tab=>action(()=>{s.portfolioTab=tab;})} close={close}/></div>}
   </main>;

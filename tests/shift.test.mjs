@@ -53,8 +53,13 @@ function prepare(s) {
 function document(s,press) {
   for(const [key] of state.checklist(press)) engine.markRecord(s,press,key,true);
 }
-function inspectPress(s,press) {
-  for(const part of ['status','front','guard','left','rear','right']) inspect(s,press+'-'+part);
+function completePress(s,press) {
+  for(const [key,,part] of state.checklist(press)) {
+    if(s.safety.inspected[press][key]) continue;
+    inspect(s,press+'-'+part);
+    if(part==='start') tickFor(s,3.6);
+    assert.equal(s.safety.inspected[press][key],true,key);
+  }
 }
 
 test('off-stripe navigation remains possible; the truck stays in lane and cuts before contact',()=>{
@@ -339,19 +344,16 @@ test('damaged equipment can be replaced, and attaching a collected tag requires 
   assert.ok(s.safety.ppe.includes('scratched'));
   engine.gearAction(s,'glasses');
   assert.ok(state.equipped(s.safety));
-  inspect(s,'a-guard');
-  engine.interact(s,'a-stop');
-  engine.interact(s,'a-tag');
-  assert.equal(s.safety.tagged,false);
+  completePress(s,'a');
   engine.interact(s,'tag');
+  inspect(s,'b-tag');
+  assert.equal(s.safety.tagged,false);
   assert.equal(s.safety.tagHeld,true);
-  engine.interact(s,'a-tag');
+  completePress(s,'b');
   assert.equal(s.safety.tagged,true);
   assert.equal(s.safety.tagHeld,false);
-  assert.equal(s.safety.recorded.a.tagged,undefined);
-  assert.equal(s.safety.inspected.a.shutdown,undefined);
-  inspect(s,'a-status');
-  assert.equal(s.safety.inspected.a.shutdown,true);
+  assert.equal(s.safety.recorded.b.tagged,undefined);
+  assert.equal(engine.targetAvailable(s,'b-reach'),false);
 });
 
 test('the cabinet reopens an equipment close-up even when the player is already next to it',()=>{
@@ -370,46 +372,59 @@ test('the cabinet reopens an equipment close-up even when the player is already 
   }
 });
 
-test('unsafe starts and reaching preserve the shift; shutdown requires a full cycle',()=>{
+test('separate STOP and status events bracket the completed training cycle',()=>{
   const s=session();
   prepare(s);
-  engine.interact(s,'b-start');
-  assert.equal(s.film?.kind,'failure');
-  engine.endFilm(s);
-  inspectPress(s,'b');
-  engine.interact(s,'b-start');
-  engine.interact(s,'b-stop');
-  assert.equal(s.safety.completed,false);
-  engine.interact(s,'b-start');
+  inspect(s,'b-stop');
+  assert.deepEqual(s.safety.inspected.b,{});
+  inspect(s,'a-status');
+  assert.deepEqual(s.safety.inspected.a,{});
+  for(const [, ,part] of state.checklist('a').slice(0,7)) inspect(s,'a-'+part);
+  inspect(s,'a-start');
+  inspect(s,'a-stop');
+  assert.equal(s.safety.inspected.a.cycle,undefined);
+  assert.equal(s.safety.inspected.a.stopFinal,undefined);
+  inspect(s,'a-start');
   tickFor(s,3.6);
   assert.equal(s.pressMode,'cycled');
-  engine.interact(s,'b-stop');
-  assert.equal(s.safety.completed,true);
-  engine.interact(s,'a-start');
-  assert.equal(s.stoppedA,false);
-  engine.interact(s,'a-reach');
-  assert.equal(s.film?.reason,'reach');
-  engine.endFilm(s);
-  assert.equal(s.safety.completed,true);
-  assert.deepEqual(s.pos,map.PRESS);
+  inspect(s,'a-status');
+  assert.equal(s.safety.inspected.a.statusFinal,undefined);
+  inspect(s,'a-stop');
+  inspect(s,'a-status');
+  assert.equal(s.safety.inspected.a.statusFinal,true);
+  assert.equal(state.nextStep(s.safety,'a'),undefined);
 });
 
-test('opening the attachment precedes audit; claims and omissions require correction',()=>{
+test('reaching requires confirmation and cancel preserves inspection progress',()=>{
+  const s=session();
+  prepare(s);
+  completePress(s,'a');
+  inspect(s,'b-stop');
+  inspect(s,'b-reach');
+  assert.equal(s.panel,'reach');
+  assert.equal(s.film,null);
+  engine.resolveReach(s,false);
+  assert.equal(s.panel,null);
+  assert.equal(s.film,null);
+  assert.deepEqual(s.safety.inspected.b,{stopInitial:true});
+  inspect(s,'b-reach');
+  engine.resolveReach(s,true);
+  assert.equal(s.film?.reason,'reach');
+  engine.endFilm(s);
+  assert.deepEqual(s.pos,map.PRESS);
+  assert.deepEqual(s.safety.inspected.b,{stopInitial:true});
+});
+
+test('opening the attachment precedes audit; omissions require correction',()=>{
   const s=session();
   prepare(s);
   engine.interact(s,'tag');
-  inspect(s,'a-guard');
-  engine.interact(s,'a-stop');
-  engine.interact(s,'a-tag');
-  inspect(s,'a-status');
-  inspectPress(s,'b');
-  engine.interact(s,'b-start');
-  tickFor(s,3.6);
-  engine.interact(s,'b-stop');
-  document(s,'a');
   document(s,'b');
-  engine.markRecord(s,'b','shutdown',false);
-  assert.ok(state.recordIssues(s.safety).some(x=>x.page==='a'&&x.reason==='Not performed'));
+  assert.ok(state.recordIssues(s.safety).some(x=>x.page==='b'&&x.reason==='Not performed'));
+  completePress(s,'a');
+  completePress(s,'b');
+  document(s,'a');
+  engine.markRecord(s,'b','statusFinal',false);
   assert.ok(state.recordIssues(s.safety).some(x=>x.page==='b'&&x.reason==='Not recorded'));
   engine.mailDecision(s,'open');
   assert.equal(s.film?.kind,'incident');
@@ -420,20 +435,14 @@ test('opening the attachment precedes audit; claims and omissions require correc
   engine.endFilm(s);
   assert.deepEqual(s.pos,map.PRESS);
   assert.equal(s.safety.tagged,true);
-  assert.equal(s.safety.completed,true);
   engine.reviewRecords(s);
-  assert.equal(s.film,null);
   assert.equal(s.safety.reported,false);
-  inspectPress(s,'a');
-  engine.markRecord(s,'b','shutdown',true);
-  for(const id of s.safety.ppe) inspect(s,id);
+  engine.markRecord(s,'b','statusFinal',true);
   for(const [key] of state.preparationRows) engine.markPreparation(s,key,true);
   engine.reviewRecords(s);
   assert.equal(s.panel,'ending');
-  assert.equal(s.safety.reported,true);
   assert.deepEqual(state.recordIssues(s.safety),[]);
 });
-
 
 test('every placed indoor interaction point has a collision-free approach',()=>{
   for(const [target,definition] of Object.entries(map.positions)) {
@@ -443,27 +452,38 @@ test('every placed indoor interaction point has a collision-free approach',()=>{
   }
 });
 
-test('the clipboard and objective share inspection order, and old Press A cycle claims are optional',()=>{
+test('guidance follows the clipboard order through every physical step',()=>{
   const s=session(map.PRESS);
   prepare(s);
-  s.safety.tagHeld=true;
-  assert.deepEqual(state.preparationRows.map(([key])=>key),['eyes','ears','feet','tag']);
-  const common=['stopped','front','guard','left','rear','right'];
-  assert.deepEqual(state.checklist('a').map(([key])=>key),[...common,'tagged','shutdown']);
-  assert.deepEqual(state.checklist('b').map(([key])=>key),[...common,'noDefects','cycle','shutdown']);
-  for(const press of ['a','b']) for(const [key,,part] of state.checklist(press)) {
-    if(key==='tagged') s.safety.inspected.a.secured=true;
-    assert.equal(state.objective(s),`${press}-${part}`);
-    s.safety.inspected[press][key]=true;
-    s.safety.recorded[press][key]=true;
+  engine.interact(s,'tag');
+  for(const press of ['a','b']) {
+    assert.equal(state.checklist(press).length,10);
+    for(const [key,,part] of state.checklist(press)) {
+      assert.equal(state.objective(s),press+'-'+part);
+      inspect(s,press+'-'+part);
+      if(part==='start') tickFor(s,3.6);
+      assert.equal(s.safety.inspected[press][key],true);
+      assert.equal(s.safety.recorded[press][key],undefined);
+    }
   }
-  for(const [key] of state.preparationRows) engine.markPreparation(s,key,true);
-  s.safety.tagged=s.safety.completed=true;
-  s.safety.inspected.a.cycle=true;
-  s.safety.recorded.a.cycle=false;
   assert.equal(state.objective(s),'mail');
-  assert.equal(state.hasMail(s.safety),true);
-  assert.deepEqual(state.recordIssues(s.safety),[]);
+});
+
+test('legacy press records reset while PPE and a collected tag survive migration',()=>{
+  globalThis.localStorage={getItem:()=>JSON.stringify({checkpoint:'desk',safety:{
+    ppe:['boots'],tagged:true,completed:true,reported:true,mailDisposition:'report',
+    inspected:{a:{shutdown:true},b:{cycle:true}},recorded:{a:{shutdown:true},b:{cycle:true}},
+  }})};
+  try {
+    const s=state.startSession();
+    assert.deepEqual(s.pos,map.PRESS);
+    assert.deepEqual(s.safety.ppe,['boots']);
+    assert.deepEqual(s.safety.inspected,{a:{},b:{}});
+    assert.deepEqual(s.safety.recorded,{a:{},b:{}});
+    assert.equal(s.safety.tagHeld,true);
+    assert.equal(s.safety.mailDisposition,'report');
+    assert.match(s.notification,/Press exercises were updated/);
+  } finally {delete globalThis.localStorage;}
 });
 
 test('floor routes stay on the starting bank to the curb and detour around indoor obstacles',()=>{
@@ -559,9 +579,8 @@ test('unique PPE is reusable and a spent tag stays attached across checkpoint re
     engine.gearAction(s,'boots');
     engine.interact(s,'tag');
     engine.interact(s,'tag');
-    inspect(s,'a-guard');
-    engine.interact(s,'a-stop');
-    engine.interact(s,'a-tag');
+    completePress(s,'a');
+    completePress(s,'b');
     engine.interact(s,'tag');
     engine.gearAction(s,'scratched');
     const restored=state.startSession();

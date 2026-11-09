@@ -41,7 +41,7 @@ export function Clipboard({s,act,close,paper}:Props&{paper:RefObject<HTMLDivElem
           {rows.map((row,i)=><label key={row.key} className="form-check" aria-current={row===next?'step':undefined}>
             <span className="step-number" aria-hidden="true">{i+1}</span>
             <input type="checkbox" checked={row.marked} onChange={e=>act(()=>row.mark(e.target.checked))}/>
-            <span>{row.label}{row===next&&<small className="step-next" aria-hidden="true">{row.done?'NEXT · MARK THIS STEP':'NEXT · DO THIS STEP'}</small>}</span>
+            <span>{row.label}{row===next&&<small className="step-next" aria-hidden="true">{row.done?'NEXT · MARK THIS STEP':'NEXT · DO THIS STEP'}</small>}{row!==next&&row.done&&<small className="step-next">PERFORMED</small>}</span>
           </label>)}
         </fieldset>
       </div>
@@ -77,8 +77,8 @@ export function InspectionFocus({s,act,close}:Props) {
   }
   const [press,part]=machinePart(target)!;
   const detail=part==='status'?
-    (press==='a'?!s.stoppedA:s.pressMode!=='idle')?'Machine is not in its initial stopped state.':press==='a'&&s.safety.tagged?'Panel confirms the press is stopped and tagged out.':'Panel confirms the training press is stopped.':
-    part==='guard'&&press==='a'?'A metal offcut is wedged beneath the displaced guard. Keep hands clear.':details[part];
+    press==='a'&&s.pressMode!=='idle'?'RAM HOME. Use STOP before verifying.':press==='b'&&s.safety.tagged?'OUT OF SERVICE. The tag identifies the reported defect.':'STOPPED. This display does not verify energy isolation.':
+    part==='guard'&&press==='b'?'A metal offcut is wedged beneath the displaced guard. Keep hands clear.':details[part];
   return <aside className="focus-card" aria-label="Machine inspection">
     <div><div className="record-label">MACHINE INSPECTION</div><h2>{positions[target].name}</h2><p>{detail}</p></div>
     <button className="icon-button" aria-label="Step back from machine" onClick={close}><Icon name="close"/></button>
@@ -163,7 +163,7 @@ export function Ending({explore,open}:{explore:()=>void;open:(tab:PortfolioTab)=
       <p>Your first day at the factory is complete.</p>
       <div className="ending-credit"><small>AN INTERACTIVE EXPERIENCE BY</small><strong>Aulia Ilham Nur Alfian</strong></div>
       <Action kind="primary" onClick={()=>open('About Me')}>Meet the Developer <Icon name="arrow"/></Action>
-      <div className="ending-links"><button onClick={explore}>Explore Again</button><button onClick={()=>open('CV / Résumé')}>View CV</button><button onClick={()=>open('Contact')}>Contact</button></div>
+      <div className="ending-links"><button onClick={()=>open('Project Case Study')}>Project Case Study</button><button onClick={explore}>Explore Again</button><button onClick={()=>open('CV / Résumé')}>View CV</button><button onClick={()=>open('Contact')}>Contact</button></div>
     </div>
   </section>;
 }

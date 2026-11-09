@@ -25,10 +25,10 @@ export const ROAD = { near: 15.55, far: 7.25, width: 1.85, lanes: [13.7,9.2] as 
 export const WALK_SPEED=3.3;
 export const PREP_TABLE:Point=[4.55,-4.27];
 export const PRESS_Z = -12.18;
-export const pressX: Record<Press,number> = {a:-7.65,b:-1.95};
+export const pressX: Record<Press,number> = {a:-1.95,b:-7.65};
 export function pressHazard([x,z]:Point):Press|null {
   if(z<PRESS_Z-3.12 || z>PRESS_Z+3.52) return null;
-  const press=x<(pressX.a+pressX.b)/2?'a':'b';
+  const press=x<(pressX.a+pressX.b)/2?'b':'a';
   return Math.abs(x-pressX[press])<=2.95?press:null;
 }
 type Destination = { point:Point; anchor:Vec; name:string; reach:number; hit?:Vec };
@@ -65,11 +65,12 @@ const parts:Record<Part,{point:Point; anchor:Vec; hit:Vec}> = {
 };
 for(const press of ['a','b'] as const) {
   for(const part of pressParts) {
-    if(press==='b' && (part==='tag'||part==='reach')) continue;
+    if(press==='a' && (part==='tag'||part==='reach') || press==='b' && part==='start') continue;
     const {point,anchor,hit}=parts[part];
     positions[`${press}-${part}`]={
       point:[pressX[press]+point[0],PRESS_Z+point[1]],
-      anchor:[pressX[press]+anchor[0],anchor[1],PRESS_Z+anchor[2]],
+      anchor:press==='b'&&part==='guard'?[pressX.b+.47,1.72,PRESS_Z+.84]:
+        [pressX[press]+anchor[0],anchor[1],PRESS_Z+anchor[2]],
       name:`Press ${press.toUpperCase()} · ${partLabels[part]}`,
       reach:part==='front'?1.0:.6,hit,
     };
