@@ -248,7 +248,7 @@ function App() {
         {s.safety.tagHeld&&<span className="held-tag" title="Out-of-service tag carried">TAG</span>}
         {!s.safety.ppe.length&&!s.safety.tagHeld&&<span>Equipment</span>}
       </div>}
-      {atCurb&&!s.focus&&<div className="guide"><div className="guide-text" role="status"><Icon name={s.trafficSide?'warning':'aim'} size={16}/> {direction(s)}</div></div>}
+      {(atCurb||(!s.safety.reported&&!!machinePart(objective(s))))&&!s.focus&&<div className="guide"><div className="guide-text" role="status"><Icon name={s.trafficSide?'warning':'aim'} size={16}/> {direction(s)}</div></div>}
     </div>}
     {s.safety.clipboard&&(playing||panel==='clipboard')&&<button className="clipboard-key" aria-pressed={panel==='clipboard'} title="Raise or lower the clipboard (C)" onClick={raiseClipboard}><span aria-hidden="true">▤</span><span>CLIPBOARD<small>{panel==='clipboard'?'Open':'Closed'}</small></span></button>}
     {playing&&s.focus&&<InspectionFocus s={s} act={action} close={close}/>}
