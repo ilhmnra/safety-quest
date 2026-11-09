@@ -609,14 +609,17 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper,turnCue}:Scen
   const smooth=useRef({yaw:s.yaw,pitch:s.pitch,x:s.pos[0],z:s.pos[1],y:1.71});
   const perf=useRef({time:0,frames:0,slow:false});
   const gesture=useRef<{id:number;x:number;y:number;lastX:number;lastY:number;moved:boolean}>();
-  const probes=useMemo(()=>targetList.map(([id,p])=>{
-    const obj=new T.Mesh(cube);
-    obj.userData.target=id;
-    obj.position.set(...p.anchor);
-    obj.scale.set(...(p.hit??[.6,.6,.6]));
-    obj.updateMatrixWorld();
-    return obj;
-  }),[]);
+  const probes=useMemo(()=>targetList
+    // Road markers have their own buttons. Their volumes would intercept taps meant for the road beyond them.
+    .filter(([id])=>!['crossing','crossing-north','arrival','arrival-south'].includes(id))
+    .map(([id,p])=>{
+      const obj=new T.Mesh(cube);
+      obj.userData.target=id;
+      obj.position.set(...p.anchor);
+      obj.scale.set(...(p.hit??[.6,.6,.6]));
+      obj.updateMatrixWorld();
+      return obj;
+    }),[]);
   useEffect(()=>{
     if(camera instanceof T.PerspectiveCamera) {
       camera.fov=size.width/size.height<.7?74:s.settings.fov;
