@@ -9,10 +9,10 @@ function Link({href,children}:{href:string;children:React.ReactNode}) {
   return <a href={href} target="_blank" rel="noopener noreferrer">{children} <span aria-hidden>↗</span></a>;
 }
 const skills = [
-  ['Safety Quest','React','TypeScript','Three.js','React Three Fiber','Vite','Web Audio','localStorage','GitHub Pages','First-person interaction','Responsive controls','Simulation state'],
-  ['Business analysis','Requirements gathering','Stakeholder interviews','Process mapping','Data modeling','UAT'],
-  ['Software and data','C#','ASP.NET MVC','Python','SQL','SQL Server'],
-  ['Delivery and quality','Agile development','Functional testing','AI evaluation','Rubric design','RL environment QA'],
+  ['Business analysis','Understanding user needs','Requirements gathering','Stakeholder interviews','Process mapping','Data modeling','UAT'],
+  ['Software and data','C#','ASP.NET MVC','Python','SQL','SQL Server','React','TypeScript','Three.js','React Three Fiber','Web Audio','localStorage'],
+  ['Interaction design','First-person interaction','Responsive controls','Training flow design','Simulation state'],
+  ['Delivery and quality','Agile development','Functional testing','Vite','GitHub Pages','AI evaluation','Rubric design','RL environment QA'],
 ];
 export default function Portfolio({tab,change,close}:{tab:PortfolioTab;change:(tab:PortfolioTab)=>void;close:()=>void}) {
   const content=useRef<HTMLElement>(null);
@@ -39,7 +39,8 @@ export default function Portfolio({tab,change,close}:{tab:PortfolioTab;change:(t
           <article className="record featured-project">
             <span className="record-label">INDEPENDENT TRAINING PROTOTYPE</span>
             <h3>Safety Quest</h3>
-            <p>Inspired by recurring onboarding workflows, this first-person factory simulation lets players compare a working press with a defective one and record what they actually inspected.</p>
+            <p>During my internship, I saw how trainees came and went in cohorts. Each new group needed orientation, while in-person training depended on the availability of trainers and a suitable space.</p>
+            <p>I used that observation to design a self-paced browser demo. Trainees can compare a working press with a defective one, document what they inspected, and retry from a checkpoint. The demo shows how part of the introduction could happen before a supervised session.</p>
             <p>Built with React, TypeScript, and Three.js for WebGL browsers. The scenarios are fictional and provide no workplace certification.</p>
             <Link href={original+'projects/safety-quest/'}>Read Full Case Study</Link>
           </article>
