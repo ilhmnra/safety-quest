@@ -3,15 +3,16 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as T from 'three';
 import { architecture, officeArchitecture, press, truck, person, skin, uniform, type Box, ink, steel, amber, ochre, lamp, alert, tealLamp, cream, slate } from './models';
-import { distance, gear, isGear, machinePart, onRoad, positions, PREP_TABLE, PRESS_Z, ROAD, pressX, props, route, walls, type Gear, type Point, type Press, type Target } from './map';
+import { distance, facingGuide, gear, isGear, machinePart, onRoad, positions, PREP_TABLE, PRESS_Z, ROAD, pressX, props, route, walls, type Gear, type Point, type Press, type Target, type Vec } from './map';
 import { hasMail, nearCrossing, objective, observed, usingCrossing, type Session } from './state';
-import { filmStage, OFFICE_SHIFT, PPE_CUES, ppeBeat, REACH_CUT, REACH_JOLT, ROAD_IMPACT_LEAD, ROAD_REACTION_DELAY } from './cinematics';
+import { filmStage, OFFICE_SHIFT, PPE_CUES, PPE_FOOT_RELEASE, ppeBeat, REACH_CUT, REACH_JOLT, ROAD_IMPACT_LEAD, ROAD_REACTION_DELAY } from './cinematics';
 import { encounterTruck, fromSouth, truckMotion } from './traffic';
 import { audioStatus, play, setAudioLevel, unlock, updateAmbience } from './audio';
 import { angleDelta, navigate, nearest, observeView, openNearby, say, targetAvailable, tick, turnTo, walkingRoute } from './engine';
 
 export type Markers = Partial<Record<Target,HTMLButtonElement>>;
 type Props = { session:Session; keys:Set<string>; markers:MutableRefObject<Markers>; update:()=>void; touch:boolean; monitor:MutableRefObject<HTMLDivElement|null>; paper:MutableRefObject<HTMLDivElement|null> };
+type SceneProps=Props&{turnCue:MutableRefObject<HTMLDivElement|null>};
 const cube=new T.BoxGeometry();
 const temp=new T.Object3D();
 const mats=new Map<string,T.Material>();
@@ -304,7 +305,7 @@ const fragmentShapes=Array.from({length:15},(_,i)=>({
 }));
 
 function PpeEffects({s}:{s:Session}) {
-  const feet=useRef<T.Group>(null), shoe=useRef<T.Group>(null), falling=useRef<T.Group>(null), blood=useRef<T.Group>(null);
+  const feet=useRef<T.Group>(null), leg=useRef<T.Group>(null), shoe=useRef<T.Group>(null), falling=useRef<T.Group>(null), blood=useRef<T.Group>(null);
   const debris=useRef<T.Group>(null), flash=useRef<T.PointLight>(null);
   const canvas=s.film?.kind==='ppe'&&s.film.footwear==='canvas';
   const footTone=canvas?'#ab9272':'#c39a80';
@@ -315,17 +316,20 @@ function PpeEffects({s}:{s:Session}) {
     const foot=feet.current!, metal=falling.current!;
     foot.visible=beat?.slot==='feet';
     if(foot.visible&&beat) {
-      foot.position.set(s.pos[0]-Math.sin(yaw)*1.05,.126,s.pos[1]-Math.cos(yaw)*1.05);
+      foot.position.set(s.pos[0]-Math.sin(yaw)*1.55,.126,s.pos[1]-Math.cos(yaw)*1.55);
       foot.rotation.y=yaw;
-      const fall=T.MathUtils.clamp((beat.time-.10)/(PPE_CUES.feet-.10),0,1);
-      metal.position.set(.04,T.MathUtils.lerp(2.08,.10,fall**2),-.22);
-      metal.rotation.set(.47*(1-fall),beat.time*4,.31*(1-fall));
-      shoe.current!.scale.y=T.MathUtils.lerp(1,.27,T.MathUtils.smoothstep(beat.time,PPE_CUES.feet-.025,PPE_CUES.feet+.10));
+      const fall=T.MathUtils.clamp((beat.time-PPE_FOOT_RELEASE)/(PPE_CUES.feet-PPE_FOOT_RELEASE),0,1);
+      metal.position.set(-.07,T.MathUtils.lerp(2.08,.10,fall**2),-.17);
+      metal.rotation.set(.47*(1-fall),Math.min(beat.time,PPE_CUES.feet)*4,.31*(1-fall));
+      const crush=T.MathUtils.smoothstep(beat.time,PPE_CUES.feet-.025,PPE_CUES.feet+.15);
+      shoe.current!.scale.y=1-.73*crush;
+      leg.current!.rotation.x=-.12*crush;
+      leg.current!.position.y=-.043*crush;
       blood.current!.visible=beat.time>=PPE_CUES.feet&&beat.time<PPE_CUES.feet+.48;
     }
     const burst=debris.current!;
     const age=beat?.slot==='eyes'?beat.time-PPE_CUES.eyes:-1;
-    burst.visible=age>=0&&age<.62;
+    burst.visible=age>=0&&age<.75;
     const sourceX=pressX[film.press]+Math.sin(yaw)*1.30,sourceZ=PRESS_Z+Math.cos(yaw)*1.30;
     flash.current!.position.set(sourceX,1.48,sourceZ);
     flash.current!.intensity=burst.visible&&!s.settings.reduced?12*(1-Math.min(1,age/.17)):0;
@@ -338,10 +342,15 @@ function PpeEffects({s}:{s:Session}) {
   });
   return <>
     <group ref={feet} visible={false}>
+      <group ref={leg} position={[.13,0,0]}>
+        <mesh geometry={cube} position={[0,.79,.51]} rotation-x={.54} scale={[.25,.59,.23]} material={material('#566e70')}/>
+        <mesh geometry={cube} position={[0,.36,.30]} rotation-x={.34} scale={[.194,.53,.175]} material={material('#4c6266')}/>
+        <GlowingBox position={[0,.54,.37]} size={[.219,.13,.21]} color="#677c78"/>
+        <GlowingBox position={[.092,.76,.565]} size={[.051,.19,.09]} color="#798d82"/>
+      </group>
       <group ref={shoe} position={[.13,0,0]}>
         <GlowingBox position={[0,.058,.14]} size={[.24,.116,.52]} color={footTone}/>
         {canvas&&<GlowingBox position={[0,.015,.13]} size={[.25,.030,.54]} color="#3c3731"/>}
-        <GlowingBox position={[0,.15,.34]} size={[.17,.23,.15]} color="#506364"/>
       </group>
       <group ref={falling}><mesh geometry={tireGeometry} scale={[.91,.40,.91]} material={material('#4e6064')}/><Batch boxes={gearTeeth} shadows={false}/>
         <mesh geometry={hubGeometry} position={[0,.09,0]} material={material('#9ba7a0')}/>
@@ -458,6 +467,44 @@ const ray=new T.Raycaster(), pointer=new T.Vector2();
 const ground=new T.Plane(new T.Vector3(0,1,0),0);
 const hit=new T.Vector3();
 const targetList=Object.entries(positions) as [Target,(typeof positions)[Target]][];
+type OutlineShape={boxes:Box[];at:Vec;tilt?:number};
+const outlineShapes:Partial<Record<Target,OutlineShape>>={
+  clipboard:{boxes:boardBoxes,at:[PREP_TABLE[0],1.15,PREP_TABLE[1]],tilt:-1.23},
+  tag:{boxes:[[0,.193,0,.055,.16,.042,ink],[0,0,0,.35,.32,.037,ink]],at:positions.tag.anchor},
+  mail:{boxes:architecture.filter(([x,y,z])=>x===7.6&&y>1.1&&y<1.95&&z< -11.40&&z> -12.3),at:[0,0,0]},
+};
+for(const [id,boxes] of Object.entries(equipmentModels) as [Gear,Box[]][]) outlineShapes[id]={boxes,at:gear[id].anchor};
+for(const [id,model] of [['a',modelA],['b',modelB]] as const) {
+  const at:Vec=[pressX[id],.105,PRESS_Z];
+  const pieces={
+    front:model.filter(([x,y,z])=>x===0&&y===3.1&&z>1),
+    status:model.filter(([x,y])=>x===.86&&y===2.235),
+    guard:model.filter(([x,y,z])=>Math.abs(x)<.57&&y>=1.27&&y<=2.22&&z>=.72&&z<.9),
+    left:model.filter(([x,y])=>x===-1.178&&y===1.98),
+    right:model.filter(([x,y])=>x===1.178&&y===1.98),
+    rear:model.filter(([,y,z])=>y>=1.9&&z<=-1.1),
+    start:model.filter(([x,y])=>x===.91&&y===1.705),
+    stop:model.filter(([x,y])=>x===.91&&y===1.225),
+    tag:model.filter(([x,y])=>x===-.95&&y===1.245),
+    reach:model.filter(([x,y,z])=>x>.10&&x<.42&&y>1.2&&y<1.52&&z>.5),
+  };
+  for(const [part,boxes] of Object.entries(pieces)) if(boxes.length) outlineShapes[`${id}-${part}` as Target]={boxes,at};
+}
+const glowCore=new T.MeshBasicMaterial({color:'#ffce7f',side:T.BackSide,transparent:true,opacity:.91,depthWrite:false});
+const glowHalo=new T.MeshBasicMaterial({color:'#ffae54',side:T.BackSide,transparent:true,opacity:.20,depthWrite:false});
+function ObjectOutline({shape,bind}:{shape:OutlineShape;bind:(group:T.Group|null)=>void}) {
+  return <group ref={bind} visible={false} position={shape.at} rotation-x={shape.tilt??0}>
+    {([['halo',glowHalo,.048],['core',glowCore,.022]] as const).map(([key,mat,margin])=><instancedMesh key={key} args={[cube,mat,shape.boxes.length]} renderOrder={key==='halo'?2:3} ref={mesh=>{
+      if(!mesh) return;
+      shape.boxes.forEach(([x,y,z,w,h,d,,ry,rz],i)=>{
+        temp.position.set(x,y,z);temp.rotation.set(0,ry??0,rz??0);
+        temp.scale.set(w+margin,h+margin,d+margin);temp.updateMatrix();mesh.setMatrixAt(i,temp.matrix);
+      });
+      mesh.instanceMatrix.needsUpdate=true;
+      mesh.computeBoundingSphere();
+    }}/>) }
+  </group>;
+}
 const PAPER_WIDTH=.437, PAPER_HEIGHT=.525, PAPER_Y=-.014, PAPER_Z=.035;
 const heldBoard:Box[]=[
   [0,0,0,.47,.59,.042,'#856a52'],
@@ -474,7 +521,7 @@ function guideHeight(x:number,z:number) {
   for(const [cx,y,cz,width,depthY,depth] of guideSurfaces) {
     if(Math.abs(cx-x)<=width/2&&Math.abs(cz-z)<=depth/2) height=Math.max(height,y+depthY/2);
   }
-  return height+.005;
+  return height+.011;
 }
 
 function placeSurface(el:HTMLDivElement,a:T.Vector3,b:T.Vector3,width:number,height:number,interactive:boolean) {
@@ -487,14 +534,17 @@ function placeSurface(el:HTMLDivElement,a:T.Vector3,b:T.Vector3,width:number,hei
 
 function plotGuide(mesh:T.InstancedMesh,start:Point,path:Point[],lead:number) {
   const stamp=new T.Object3D();
+  const samples:Vec[]=[];
   stamp.rotation.x=-Math.PI/2;
-  let origin=start, skip=lead, count=0;
+  let origin=start, skip=Math.max(1.26,lead*.68), count=0;
   for(const point of path) {
     const length=distance(origin,point);
     for(;skip<length && count<DOT_CAPACITY;skip+=.49) {
       const x=T.MathUtils.lerp(origin[0],point[0],skip/length);
       const z=T.MathUtils.lerp(origin[1],point[1],skip/length);
-      stamp.position.set(x,guideHeight(x,z),z);
+      const y=guideHeight(x,z);
+      if(samples.length<12) samples.push([x,y,z]);
+      stamp.position.set(x,y,z);
       stamp.updateMatrix();
       mesh.setMatrixAt(count++,stamp.matrix);
     }
@@ -503,6 +553,7 @@ function plotGuide(mesh:T.InstancedMesh,start:Point,path:Point[],lead:number) {
   }
   mesh.count=count;
   mesh.instanceMatrix.needsUpdate=true;
+  return samples;
 }
 
 function guideTarget(s:Session,active:Target):Target {
@@ -539,14 +590,15 @@ function blockedView(a:Point,b:Point,object=false) {
   return false;
 }
 
-function Runner({session:s,keys,markers,update,touch,monitor,paper}:Props) {
+function Runner({session:s,keys,markers,update,touch,monitor,paper,turnCue}:SceneProps) {
   const {camera,gl,size,setDpr}=useThree();
   const floor=useRef<T.Mesh>(null);
   const trail=useRef<T.InstancedMesh>(null);
   const board=useRef<T.Group>(null);
   const lift=useRef(0);
-  const guideCache=useRef<{at:Point;key:string}|null>(null);
-  const highlight=useRef<T.Mesh>(null);
+  const guideCache=useRef<{at:Point;key:string;path:Point[];yaw:number;samples:Vec[]}|null>(null);
+  const outlines=useRef<Partial<Record<Target,T.Group>>>({});
+  const pointerAim=useRef<T.Vector2|null>(null);
   const soundClock=useRef({elapsed:0,walked:0});
   const screenCorners=useMemo(()=>[new T.Vector3(),new T.Vector3()],[]);
   const lastUI=useRef('');
@@ -573,16 +625,21 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper}:Props) {
   },[setDpr,s.settings.quality,touch]);
   useEffect(()=>{
     const el=gl.domElement;
+    const cursor=(e:PointerEvent)=>{
+      const rect=el.getBoundingClientRect();
+      return pointer.set((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1);
+    };
     const press=(e:PointerEvent)=>{
       if(!s.started || s.panel || s.film || e.button!==0) return;
       if(s.settings.sound&&audioStatus()!=='running') {setAudioLevel(true,s.settings.volume);unlock();}
-      if(document.pointerLockElement===el) return;
       gesture.current={id:e.pointerId,x:e.clientX,y:e.clientY,lastX:e.clientX,lastY:e.clientY,moved:false};
-      el.setPointerCapture(e.pointerId);
+      if(document.pointerLockElement!==el) el.setPointerCapture(e.pointerId);
     };
     const look=(e:PointerEvent)=>{
       if(!s.started || s.panel || s.film) return;
       if(document.pointerLockElement===el && e.pointerType==='mouse') {
+        pointerAim.current=null;
+        if(gesture.current&&Math.abs(e.movementX)+Math.abs(e.movementY)>4) gesture.current.moved=true;
         s.look=null;
         s.gazeSelection=null;
         s.focus=null;
@@ -591,6 +648,7 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper}:Props) {
         return;
       }
       const g=gesture.current;
+      if(e.pointerType==='mouse'&&!g) pointerAim.current=e.target===el?cursor(e).clone():null;
       if(!g || g.id!==e.pointerId) return;
       if(Math.hypot(e.clientX-g.x,e.clientY-g.y)>(e.pointerType==='mouse'?4:8)) g.moved=true;
       if(g.moved) {
@@ -608,14 +666,10 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper}:Props) {
       const g=gesture.current;
       gesture.current=undefined;
       if(!g || g.id!==e.pointerId || g.moved || s.panel || s.film) return;
-      if(e.pointerType==='mouse' && s.settings.control==='mouse' && el.requestPointerLock) {
-        try { void el.requestPointerLock()?.catch(()=>say(s,'Mouse lock unavailable. Drag to look.')); } catch { say(s,'Mouse lock unavailable. Drag to look.'); }
-        return;
-      }
       if(s.nav) { s.nav=null; say(s,'Walk stopped.'); update(); return; }
       if(s.focus) {s.focus=null;s.look=null;}
-      const rect=el.getBoundingClientRect();
-      pointer.set((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1);
+      if(document.pointerLockElement===el) pointer.set(0,0);
+      else cursor(e);
       ray.setFromCamera(pointer,camera);
       const picks=ray.intersectObjects(probes.filter(p=>visibleFrom(s,p.userData.target)),false);
       const picked=picks.find(p=>{
@@ -624,6 +678,11 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper}:Props) {
         return p.distance<26 && !blockedView(s.pos,[x,z],true);
       });
       if(picked) openNearby(s,picked.object.userData.target as Target);
+      else if(e.pointerType==='mouse' && s.settings.control==='mouse' && el.requestPointerLock) {
+        if(document.pointerLockElement!==el) {
+          try { void el.requestPointerLock()?.catch(()=>say(s,'Mouse lock unavailable. Drag to look.')); } catch { say(s,'Mouse lock unavailable. Drag to look.'); }
+        }
+      }
       else if(ray.ray.intersectPlane(ground,hit) && hit.distanceTo(camera.position)<45 && !blockedView(s.pos,[hit.x,hit.z])) navigate(s,[hit.x,hit.z]);
       else say(s,'Choose a clear patch of ground to walk.');
       update();
@@ -663,8 +722,6 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper}:Props) {
     const crtZ=-11.409+1.476*size.height/(viewSlope*screenWidth);
     if(s.panel==='mail') {
       x=7.6;z=crtZ;y=1.92;yaw=0;pitch=0;
-    } else if(s.panel==='cabinet'&&s.look) {
-      [yaw,pitch]=s.look;
     }
     if(s.focus && !f && !s.panel) {
       const [ax,ay,az]=positions[s.focus.target].anchor;
@@ -692,7 +749,14 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper}:Props) {
     } else if(f?.kind==='ppe') {
       const beat=ppeBeat(f);
       yaw=turnTo(s.pos,[pressX[f.press],PRESS_Z]);
-      pitch=beat?.slot==='feet'?T.MathUtils.lerp(-.26,-.88,T.MathUtils.smoothstep(beat.time,.07,.61)):-.07;
+      pitch=-.07;
+      if(beat?.slot==='feet') {
+        const framing=T.MathUtils.smoothstep(beat.time,.06,.48);
+        x+=(Math.sin(yaw)*.49-Math.cos(yaw)*.45)*framing;
+        z+=(Math.cos(yaw)*.49+Math.sin(yaw)*.45)*framing;
+        yaw=turnTo([x,z],[s.pos[0]-Math.sin(yaw)*1.55,s.pos[1]-Math.cos(yaw)*1.55]);
+        pitch=T.MathUtils.lerp(-.12,-.62,T.MathUtils.smoothstep(beat.time,.40,1.02));
+      }
       if(beat&&!s.settings.reduced&&beat.time>=PPE_CUES[beat.slot]) {
         const age=beat.time-PPE_CUES[beat.slot];
         y+=Math.sin(age*32)*Math.max(0,.06-age*.17);
@@ -719,7 +783,7 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper}:Props) {
     m.pitch=direct?pitch:T.MathUtils.damp(m.pitch,pitch,rate,dt);
     if(camera instanceof T.PerspectiveCamera && size.width/size.height<.7) {
       const viewingCabinet=s.pos[1]<-.58 && s.pos[1]>-4.42 && Math.abs(s.pos[0]-6.9)<2.25 && !f && !s.focus;
-      const fov=T.MathUtils.damp(camera.fov,viewingCabinet?77:74,7,dt);
+      const fov=T.MathUtils.damp(camera.fov,viewingCabinet?79:74,7,dt);
       if(Math.abs(fov-camera.fov)>.01) {camera.fov=fov;camera.updateProjectionMatrix();}
     }
     camera.position.set(m.x,m.y,m.z);
@@ -755,14 +819,6 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper}:Props) {
         placeSurface(paper.current,a,b,size.width,size.height,!paper.current.inert);
       }
     }
-    if(highlight.current) {
-      const focus=s.focus;
-      highlight.current.visible=!!focus && !isGear(focus.target) && !s.panel && !f;
-      if(focus&&highlight.current.visible) {
-        highlight.current.position.set(...positions[focus.target].anchor).lerp(camera.position,.045);
-        highlight.current.quaternion.copy(camera.quaternion);
-      }
-    }
     const audio=soundClock.current;
     audio.elapsed+=dt;
     const step=distance(before,s.pos);
@@ -785,16 +841,37 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper}:Props) {
     const active=objective(s);
     const guide=trail.current!;
     guide.visible=s.started&&!s.panel&&!f&&!s.focus&&!s.safety.reported;
+    const cue=turnCue.current;
+    if(cue) cue.hidden=true;
     if(guide.visible) {
       const target=guideTarget(s,active);
       const key=[target,s.roadClear,s.safety.door,Math.round(fov)].join('|');
-      if(!guideCache.current || guideCache.current.key!==key || distance(s.pos,guideCache.current.at)>.32) {
+      if(!guideCache.current || guideCache.current.key!==key || distance(s.pos,guideCache.current.at)>.26) {
         const point=positions[target].point;
         const path=s.roadClear?walkingRoute(s,point):route(s.pos,point,s.safety.door);
-        plotGuide(guide,s.pos,path??[],1.72/(viewSlope*.44));
-        guideCache.current={at:[...s.pos],key};
+        guideCache.current={at:[...s.pos],key,path:path??[],yaw:Infinity,samples:[]};
+      }
+      const trace=guideCache.current;
+      if(!Number.isFinite(trace.yaw)||Math.abs(angleDelta(trace.yaw,m.yaw))>.08) {
+        const lead=1.72/(viewSlope*.44);
+        const path=facingGuide(trace.at,trace.path,m.yaw,lead,s.safety.door,s.roadClear);
+        trace.samples=plotGuide(guide,trace.at,path,lead);
+        trace.yaw=m.yaw;
+      }
+      const first=trace.path.find(point=>distance(s.pos,point)>.45);
+      if(cue&&first&&!trace.samples.some(point=>{
+        projected.set(...point);
+        if(cameraTarget.copy(projected).sub(camera.position).dot(viewPosition)<=0) return false;
+        projected.project(camera);
+        return Math.abs(projected.x)<.90&&projected.y>-.97&&projected.y<.27;
+      })) {
+        const turn=angleDelta(m.yaw,turnTo(s.pos,first));
+        cue.hidden=Math.abs(turn)<.27||distance(s.pos,positions[target].point)<1;
+        if(!cue.hidden) cue.dataset.side=turn>0?'left':'right';
       }
     }
+    let aimed:Target|undefined, bestAim=.39;
+    const lit=new Set<Target>();
     for(const [id,v] of targetList) {
       const el=markers.current[id];
       if(!el) continue;
@@ -809,6 +886,26 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper}:Props) {
         el.style.left=`${(projected.x+1)*50}%`;
         el.style.top=`${(1-projected.y)*50}%`;
         el.dataset.primary=String(active===id);
+        if(outlineShapes[id]&&distance(s.pos,v.point)<5.4) {
+          if(id===active) lit.add(id);
+          const cursor=pointerAim.current;
+          const aim=el.matches(':hover,:focus-visible')?-1:Math.hypot(projected.x-(cursor?.x??0),projected.y-(cursor?.y??0));
+          if(aim<bestAim) {aimed=id;bestAim=aim;}
+        }
+      }
+    }
+    if(aimed) lit.add(aimed);
+    if(s.focus&&!s.panel&&!f) lit.add(s.focus.target);
+    for(const [key,group] of Object.entries(outlines.current)) {
+      const id=key as Target;
+      const worn=isGear(id)&&s.safety.ppe.includes(id);
+      group.visible=lit.has(id)&&!worn;
+      if(markers.current[id]) markers.current[id]!.dataset.outlined=String(group.visible);
+      if(group.visible&&isGear(id)) {
+        const held=s.focus?.target===id;
+        group.position.y=T.MathUtils.damp(group.position.y,gear[id].anchor[1]+(held?.07:0),9,dt);
+        group.position.z=T.MathUtils.damp(group.position.z,gear[id].anchor[2]+(held?.10:0),9,dt);
+        group.rotation.y=T.MathUtils.damp(group.rotation.y,held?.14:0,8,dt);
       }
     }
     if(floor.current) {
@@ -825,10 +922,13 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper}:Props) {
   return <>
     <group ref={board} visible={false}><Batch boxes={heldBoard} shadows={false}/></group>
     <instancedMesh ref={trail} args={[undefined,undefined,DOT_CAPACITY]} visible={false} frustumCulled={false}>
-      <circleGeometry args={[.053,8]}/><meshBasicMaterial color="#ffd28b" transparent opacity={.67} depthWrite={false}/>
+      <circleGeometry args={[.072,10]}/><meshBasicMaterial color="#ffce7c" transparent opacity={.92} depthWrite={false} polygonOffset polygonOffsetFactor={-2}/>
     </instancedMesh>
     <mesh ref={floor} visible={false} rotation-x={-Math.PI/2}><ringGeometry args={[.24,.305,28]}/><meshBasicMaterial color="#ffd08a" transparent opacity={.83} depthWrite={false}/></mesh>
-    <mesh ref={highlight} visible={false}><ringGeometry args={[.115,.125,24]}/><meshBasicMaterial color="#ffd08a" transparent opacity={.7} depthWrite={false}/></mesh>
+    {Object.entries(outlineShapes).map(([id,shape])=><ObjectOutline key={id} shape={shape} bind={group=>{
+      if(group) outlines.current[id as Target]=group;
+      else delete outlines.current[id as Target];
+    }}/>) }
   </>;
 }
 function Lights({s,high}:{s:Session;high:boolean}) {
@@ -848,7 +948,7 @@ function Lights({s,high}:{s:Session;high:boolean}) {
 
   </>;
 }
-function Stage(props:Props & {high:boolean}) {
+function Stage(props:SceneProps & {high:boolean}) {
   const s=props.session;
   const office=s.film?.kind==='incident'||s.film?.kind==='audit';
   return <>
@@ -877,10 +977,11 @@ function Stage(props:Props & {high:boolean}) {
   </>;
 }
 export default function World(props:Props) {
+  const turnCue=useRef<HTMLDivElement>(null);
   const high=props.session.settings.quality==='high' || props.session.settings.quality==='auto' && !props.touch && (navigator.hardwareConcurrency || 4)>=6;
-  return <Canvas className="scene" aria-label="First-person factory grounds and training facility" camera={{position:[0,2.16,22.7],near:.055,far:150,fov:79}} shadows={high} dpr={[.8,1.6]}
+  return <><Canvas className="scene" aria-label="First-person factory grounds and training facility" camera={{position:[0,2.16,22.7],near:.055,far:150,fov:79}} shadows={high} dpr={[.8,1.6]}
     gl={{powerPreference:props.touch?'low-power':'high-performance',antialias:!props.touch,alpha:false}}
     onCreated={({gl})=>{gl.toneMapping=T.ACESFilmicToneMapping;gl.toneMappingExposure=1.12;}}>
-    <Stage {...props} high={high}/>
-  </Canvas>;
+    <Stage {...props} turnCue={turnCue} high={high}/>
+  </Canvas><div className="guide-turn" ref={turnCue} hidden aria-hidden="true"/></>;
 }

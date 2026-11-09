@@ -54,7 +54,7 @@ function document(s,press) {
   for(const [key] of state.checklist(press)) engine.markRecord(s,press,key,true);
 }
 function inspectPress(s,press) {
-  for(const part of ['status','front','rear','left','right','guard']) inspect(s,press+'-'+part);
+  for(const part of ['status','front','guard','left','rear','right']) inspect(s,press+'-'+part);
 }
 
 test('off-stripe navigation remains possible; the truck stays in lane and cuts before contact',()=>{
@@ -293,13 +293,17 @@ test('damaged equipment can be replaced, and attaching a collected tag requires 
   assert.equal(s.safety.tagged,true);
   assert.equal(s.safety.tagHeld,false);
   assert.equal(s.safety.recorded.a.tagged,undefined);
+  assert.equal(s.safety.inspected.a.shutdown,undefined);
+  inspect(s,'a-status');
+  assert.equal(s.safety.inspected.a.shutdown,true);
 });
 
 test('the cabinet reopens an equipment close-up even when the player is already next to it',()=>{
   const s=session(map.positions.boots.point);
   s.safety.door=true;
   for(let pass=0;pass<3;pass++) {
-    s.panel='cabinet';
+    engine.interact(s,'ppe');
+    assert.equal(s.panel,null);
     engine.openNearby(s,'boots');
     assert.equal(s.panel,null);
     assert.equal(s.focus?.target,'boots');
@@ -341,6 +345,7 @@ test('opening the attachment precedes audit; claims and omissions require correc
   inspect(s,'a-guard');
   engine.interact(s,'a-stop');
   engine.interact(s,'a-tag');
+  inspect(s,'a-status');
   inspectPress(s,'b');
   engine.interact(s,'b-start');
   tickFor(s,3.6);
@@ -380,6 +385,45 @@ test('every placed indoor interaction point has a collision-free approach',()=>{
     assert.equal(map.solid(definition.point,true),false,target);
     assert.ok(map.route(map.PRESS,definition.point,true),target);
   }
+});
+
+test('the clipboard and objective share inspection order, and old Press A cycle claims are optional',()=>{
+  const s=session(map.PRESS);
+  prepare(s);
+  s.safety.tagHeld=true;
+  assert.deepEqual(state.preparationRows.map(([key])=>key),['eyes','ears','feet','tag']);
+  const common=['stopped','front','guard','left','rear','right'];
+  assert.deepEqual(state.checklist('a').map(([key])=>key),[...common,'tagged','shutdown']);
+  assert.deepEqual(state.checklist('b').map(([key])=>key),[...common,'noDefects','cycle','shutdown']);
+  for(const press of ['a','b']) for(const [key,,part] of state.checklist(press)) {
+    if(key==='tagged') s.safety.inspected.a.secured=true;
+    assert.equal(state.objective(s),`${press}-${part}`);
+    s.safety.inspected[press][key]=true;
+    s.safety.recorded[press][key]=true;
+  }
+  for(const [key] of state.preparationRows) engine.markPreparation(s,key,true);
+  s.safety.tagged=s.safety.completed=true;
+  s.safety.inspected.a.cycle=true;
+  s.safety.recorded.a.cycle=false;
+  assert.equal(state.objective(s),'mail');
+  assert.equal(state.hasMail(s.safety),true);
+  assert.deepEqual(state.recordIssues(s.safety),[]);
+});
+
+test('a camera-facing guide bends toward a walkable route and does not lead off the curb',()=>{
+  const origin=[0,22.7], curb=[0,16];
+  const guide=map.facingGuide(origin,[curb],.9,1.3,false,false);
+  assert.ok(guide[0][0]<-.6);
+  assert.deepEqual(guide.at(-1),curb);
+  for(const [i,point] of guide.entries()) {
+    assert.ok(point[1]>=map.ROAD.near);
+    assert.ok(map.clearSegment(i?guide[i-1]:origin,point,false));
+  }
+  const indoor=map.positions.ppe.point;
+  const target=map.positions['a-front'].point;
+  const route=map.route(indoor,target,true);
+  const bent=map.facingGuide(indoor,route,Math.PI/2,1.3,true,true);
+  for(const [i,point] of bent.entries()) assert.ok(map.clearSegment(i?bent[i-1]:indoor,point,true));
 });
 
 test('object approach stops within reach of the stand point and leaves room from the object',()=>{

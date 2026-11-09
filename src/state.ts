@@ -1,9 +1,9 @@
-import { DESK, gear, ppeOrder, PRESS, ROAD, START, type Gear, type Part, type Point, type Press, type Target } from './map';
+import { DESK, distance, gear, positions, ppeOrder, PRESS, ROAD, START, type Gear, type Part, type Point, type Press, type Target } from './map';
 import type { Film } from './cinematics';
 import { fromSouth, startTraffic, type TrafficSide } from './traffic';
 
-export type Inspection = 'stopped' | 'front' | 'rear' | 'left' | 'right' | 'guard' | 'tagged' | 'cycle' | 'shutdown' | 'noDefects';
-export type PreparationCheck = 'eyes'|'ears'|'feet'|'suitable'|'tag';
+export type Inspection = 'stopped' | 'front' | 'rear' | 'left' | 'right' | 'guard' | 'tagged' | 'cycle' | 'shutdown' | 'noDefects' | 'secured';
+export type PreparationCheck = 'eyes'|'ears'|'feet'|'tag';
 export type InspectionPage = Press|'ppe';
 type Checks = Partial<Record<Inspection,boolean>>;
 type Records = Record<Press,Checks>;
@@ -34,7 +34,7 @@ export type Settings = {
   control: 'trackpad' | 'mouse';
   lookKeys: 'arrows' | 'qe';
 };
-export type Panel = 'welcome' | 'pause' | 'settings' | 'restart' | 'cabinet' | 'clipboard' | 'mail' | 'portfolio' | 'ending';
+export type Panel = 'welcome' | 'pause' | 'settings' | 'restart' | 'clipboard' | 'mail' | 'portfolio' | 'ending';
 export type PortfolioTab = 'About Me' | 'Work Experience' | 'Projects' | 'Skills' | 'CV / Résumé' | 'Contact';
 
 export type Session = {
@@ -137,32 +137,39 @@ export function reset(s: Session) {
 export const equipped = (s: Safety) => (['glasses','boots','hearing'] as const).every(item => s.ppe.includes(item));
 export const unsafePpe = (s:Safety) => ppeOrder.filter(slot=>!s.ppe.some(id=>gear[id].slot===slot&&gear[id].sound));
 const inspectionRows = [
-  ['stopped','Verified stopped status'],
-  ['front','Inspected front housing'],
-  ['rear','Inspected rear panel'],
-  ['left','Inspected left frame'],
-  ['right','Inspected right frame'],
-  ['guard','Examined tooling guard and condition'],
+  ['stopped','Verify stopped status.','status'],
+  ['front','Inspect the front frame.','front'],
+  ['guard','Inspect the tooling guard and its condition.','guard'],
+  ['left','Inspect the left frame.','left'],
+  ['rear','Inspect the rear frame.','rear'],
+  ['right','Inspect the right frame.','right'],
 ] as const;
 export const safeToStart = (s: Safety) => equipped(s) && inspectionRows.every(([key])=>s.inspected.b[key]);
-export const hasMail = (s: Safety) => s.completed && s.tagged;
+export const hasMail = (s: Safety) => s.completed && s.tagged && !!s.inspected.a.shutdown;
+const preparationItems={eyes:'glasses',ears:'hearing',feet:'boots'} as const;
 export const preparationRows:readonly (readonly [PreparationCheck,string])[]=[
-  ['eyes','Inspect safety glasses.'],
-  ['ears','Inspect hearing protection.'],
-  ['feet','Verify safety footwear.'],
-  ['suitable','Confirm all required PPE is suitable.'],
-  ['tag','Collect an OUT OF SERVICE tag.'],
+  ['eyes','Select and wear intact safety glasses.'],
+  ['ears','Select and wear intact hearing protection.'],
+  ['feet','Select and wear suitable safety footwear.'],
+  ['tag','Collect the out-of-service tag for Press A.'],
 ];
 
 export function preparationPerformed(s:Safety,key:PreparationCheck) {
-  if(key==='suitable') return equipped(s);
   if(key==='tag') return s.tagHeld||s.tagged;
-  return s.inspectedPpe.some(id=>gear[id].slot===key);
+  return s.ppe.includes(preparationItems[key]);
 }
-export function checklist(press:Press): readonly (readonly [Inspection,string])[] {
-  return [...inspectionRows,press==='a'?['tagged','Reported defect and attached tag']:['noDefects','Confirmed no defect to report'],
-    ['cycle',press==='a'?'Recorded out-of-service condition':'Completed approved simulation'],
-    ['shutdown','Confirmed final safe state']];
+type InspectionStep=readonly [Inspection,string,Part];
+const pressSteps:Record<Press,readonly InspectionStep[]>={
+  a:[...inspectionRows,
+    ['tagged','Report the defect and attach the out-of-service tag.','tag'],
+    ['shutdown','Confirm the final state: stopped and marked out of service.','status']],
+  b:[...inspectionRows,
+    ['noDefects','Confirm there is no defect to report.','guard'],
+    ['cycle','Run the press.','start'],
+    ['shutdown','Confirm the final state: ram home and press stopped.','stop']],
+};
+export function checklist(press:Press) {
+  return pressSteps[press];
 }
 export type RecordIssue = { page:InspectionPage; label:string; reason:'Not performed'|'Not recorded' };
 export function recordIssues(s:Safety):RecordIssue[] {
@@ -181,23 +188,23 @@ export const nearCrossing = ([x,z]:Point) => Math.abs(x)<2.8 && (z>=ROAD.near &&
 export const observed = (s:Session,side:'left'|'right') => s.gaze.curb===(fromSouth(s.pos)?'south':'north') && (s.gaze.checked || s.time-s.gaze[side]<9) && Number.isFinite(s.gaze[side]);
 export const usingCrossing = (s:Session) => nearCrossing(s.pos) && (s.gaze.checked || !!s.gazeSelection ||
   observed(s,'left') || observed(s,'right') || Math.cos(s.yaw)*(fromSouth(s.pos)?1:-1)>.23);
-const lookPoints:readonly [Inspection,Part][]=[
-  ['stopped','status'],['front','front'],['guard','guard'],['left','left'],['rear','rear'],['right','right'],
-];
 export function objective(s:Session):Target {
   if(s.pos[1]>ROAD.near) return nearCrossing(s.pos)?'arrival':'crossing';
   if(nearCrossing(s.pos) && (s.gazeSelection || observed(s,'left') || observed(s,'right'))) return 'arrival-south';
   if(!s.safety.door) return 'door';
   if(!s.safety.clipboard) return 'clipboard';
-  if(!equipped(s.safety)) return 'ppe';
-  if(!s.safety.tagged && !s.safety.tagHeld) return 'tag';
-  if(hasMail(s.safety) && !s.safety.auditShown) return 'mail';
+  for(const [key] of preparationRows) {
+    if(preparationPerformed(s.safety,key)) continue;
+    if(key==='tag') return 'tag';
+    return distance(s.pos,positions.ppe.point)>2.4?'ppe':preparationItems[key];
+  }
   for(const press of ['a','b'] as const) {
-    for(const [key,part] of lookPoints) {
-      if(!s.safety.inspected[press][key]) return `${press}-${part}`;
+    for(const [key,,part] of checklist(press)) {
+      if(s.safety.inspected[press][key]) continue;
+      if(press==='a'&&part==='tag'&&(!s.stoppedA||!(s.safety.inspected.a.secured||s.safety.inspected.a.shutdown))) return 'a-stop';
+      if(press==='b'&&part==='start'&&s.pressMode==='cycling') return 'b-status';
+      return `${press}-${part}`;
     }
-    if(press==='a' && !s.safety.tagged) return s.safety.inspected.a.shutdown?'a-tag':'a-stop';
-    if(press==='b' && !s.safety.completed) return s.pressMode==='idle'?'b-start':'b-stop';
   }
   return 'mail';
 }

@@ -38,14 +38,14 @@ export const positions = {
   'arrival-south': {point:[0,16.62],anchor:[0,1.25,16.25],name:'Far curb toward arrival',reach:.5,hit:[2.8,1.5,.4]},
   arrival: {point:[0,5.75],anchor:[0,1.25,6.3],name:'Cross the road',reach:.5,hit:[2.8,1.5,.4]},
   door: {point:[0,1.45],anchor:[0,2.05,.24],name:'Training center entrance',reach:1.5,hit:[3.5,2.85,.8]},
-  ppe: {point:[6.9,-2.48],anchor:[6.9,2.47,-4.58],name:'PPE station',reach:.8,hit:[2.8,.38,.25]},
+  ppe: {point:[6.9,-1.04],anchor:[6.9,2.47,-4.58],name:'PPE station',reach:.24,hit:[2.8,.38,.25]},
   clipboard: {point:[PREP_TABLE[0],-2.72],anchor:[PREP_TABLE[0],1.17,PREP_TABLE[1]],name:'Take clipboard',reach:.62,hit:[.5,.55,.46]},
   tag: {point:[8.78,-2.92],anchor:[8.78,1.74,-4.41],name:'Take out-of-service tag',reach:.65,hit:[.46,.49,.3]},
   mail: {point:DESK,anchor:[7.6,2.1,-11.15],name:'Workstation',reach:1.45,hit:[2.7,1.95,.83]},
 } as Record<Target,Destination>;
 
 for(const [id,item] of Object.entries(gear)) {
-  positions[id as Gear]={point:[item.anchor[0],-2.88],anchor:item.anchor,name:item.name,reach:.78,hit:[.65,.51,.44]};
+  positions[id as Gear]={point:[item.anchor[0],-2.88],anchor:item.anchor,name:item.name,reach:1.8,hit:[.65,.51,.44]};
 }
 const partLabels: Record<Part,string> = {
   front:'Front housing',rear:'Rear panel',left:'Left frame',right:'Right frame',guard:'Tooling guard',
@@ -138,11 +138,38 @@ function intersects(a: Point, b: Point, [x0,x1,z0,z1]: Rect) {
   return true;
 }
 
+const expandRect=([x0,x1,z0,z1]:Rect):Rect=>[x0-pad,x1+pad,z0-pad,z1+pad];
+const openRects=[...walls,...props].map(expandRect);
+const closedRects=[...openRects,expandRect(doorBarrier)];
+export function clearSegment(a:Point,b:Point,doorOpen:boolean) {
+  return !solid(b,doorOpen)&&!(doorOpen?openRects:closedRects).some(rect=>intersects(a,b,rect));
+}
+
+export function facingGuide(origin:Point,path:Point[],yaw:number,lead:number,doorOpen:boolean,roadClear:boolean) {
+  const first=path.find(point=>distance(origin,point)>.08);
+  if(!first) return path;
+  const angle=Math.atan2(origin[0]-first[0],origin[1]-first[1])-yaw;
+  const turn=Math.atan2(Math.sin(angle),Math.cos(angle));
+  if(Math.abs(turn)<.24) return path;
+  const onSameBank=(point:Point)=>roadClear || (origin[1]>=ROAD.near ? point[1]>=ROAD.near : point[1]<=ROAD.far);
+  const walkable=(a:Point,b:Point)=>onSameBank(b)&&clearSegment(a,b,doorOpen);
+  // The foreground bend may only rejoin the real route along walkable segments.
+  const sign=Math.sign(turn);
+  for(const span of [lead+.92,lead+.25,lead*.83,lead*.61]) {
+    for(const offset of [.02,.17,.26,-.19]) {
+      const heading=yaw+sign*offset;
+      const point:Point=[origin[0]-Math.sin(heading)*span,origin[1]-Math.cos(heading)*span];
+      if(!walkable(origin,point)) continue;
+      const join=path.findIndex(p=>distance(point,p)>.25&&walkable(point,p));
+      if(join>=0) return [point,...path.slice(join)];
+    }
+  }
+  return path;
+}
+
 export function route(from: Point, to: Point, doorOpen: boolean): Point[] | null {
   const pass=(p:Point)=>!solid(p,doorOpen);
-  const solidRects=doorOpen?[...walls,...props]:[...walls,...props,doorBarrier];
-  const blocked:Rect[]=solidRects.map(([x0,x1,z0,z1])=>[x0-pad,x1+pad,z0-pad,z1+pad]);
-  const lineClear=(a:Point,b:Point)=>pass(b) && !blocked.some(rect=>intersects(a,b,rect));
+  const lineClear=(a:Point,b:Point)=>clearSegment(a,b,doorOpen);
   if (!pass(to)) return null;
   if (lineClear(from,to)) return [to];
   const near = (p: Point, reverse = false) => {

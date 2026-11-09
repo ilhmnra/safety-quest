@@ -12,9 +12,10 @@ export const REACH_CUT=4.08;
 export const OFFICE_SHIFT=-49;
 export const ROAD_REACTION_DELAY=.32;
 export const ROAD_IMPACT_LEAD=.17;
-export const PPE_BEAT=1.74;
-export const PPE_FADE=.25;
-export const PPE_CUES={feet:.79,eyes:.56,ears:.24} as const;
+export const PPE_BEAT=2.28;
+export const PPE_FADE=.27;
+export const PPE_FOOT_RELEASE=.42;
+export const PPE_CUES={feet:1.16,eyes:.83,ears:.40} as const;
 const officeBeats=['office-intro','office-manager','office-staff','office-close'] as const;
 
 export function filmStage(s:Session) {

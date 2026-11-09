@@ -107,8 +107,9 @@ export function interact(s:Session,target:Target) {
     say(s,'Pick up the clipboard beside the PPE cabinet.');
     navigate(s,[2.6,-1.8]);
   } else if(target==='ppe') {
-    aimAt(s,target);
-    s.panel='cabinet';
+    const [x,y,z]=gear.hearing.anchor;
+    s.look=[turnTo(s.pos,[x,z]),Math.atan2(y-.28-1.72,distance(s.pos,[x,z]))];
+    say(s,'Select the equipment on the shelves to inspect it.');
     play('ui',s.settings.sound);
   } else if(target==='clipboard') {
     s.safety.clipboard=true;
@@ -322,15 +323,14 @@ function finishTraining(s:Session) {
 function tagPress(s:Session) {
   if(s.safety.tagged) return;
   if(!s.safety.tagHeld) { say(s,'Pick up an out-of-service tag from the preparation station.'); return; }
-  if(!s.stoppedA || !s.safety.inspected.a.shutdown) { say(s,'Use the physical STOP control before attaching the tag.'); return; }
+  if(!s.stoppedA || !(s.safety.inspected.a.secured||s.safety.inspected.a.shutdown)) { say(s,'Use the physical STOP control before attaching the tag.'); return; }
   if(!s.safety.inspected.a.guard) { say(s,'Examine the tooling guard and locate the obstruction first.'); return; }
   s.safety.tagHeld=false;
   s.safety.tagged=true;
-  s.safety.inspected.a.cycle=true;
   record(s,'a','tagged');
   play('switch',s.settings.sound);
   if(hasMail(s.safety)) finishTraining(s);
-  else say(s,'Defect reported. Tag attached to Press A.');
+  else say(s,'Tag attached to Press A. Verify its final status on the display.');
 }
 
 function startPress(s:Session,press:Press) {
@@ -340,6 +340,7 @@ function startPress(s:Session,press:Press) {
     s.stoppedA=false;
     s.faultTime=0;
     delete s.safety.inspected.a.shutdown;
+    delete s.safety.inspected.a.secured;
     save(s);
     play('strain',s.settings.sound);
     say(s,'Press A stalled. Use STOP and keep hands out of the tooling.');
@@ -357,7 +358,7 @@ function stopPress(s:Session,press:Press) {
   if(press==='a') {
     s.stoppedA=true;
     record(s,'a','stopped');
-    record(s,'a','shutdown');
+    record(s,'a','secured');
     say(s,'Press A is stopped. Servicing requires authorized lockout/tagout.');
   } else if(s.pressMode==='cycling') {
     s.pressMode='idle';
@@ -390,6 +391,11 @@ function inspect(s:Session,target:Target) {
   if(part==='guard' && press==='b') s.safety.inspected.b.noDefects=true;
   if(part==='status') {
     if(press==='a' ? s.stoppedA : s.pressMode==='idle') record(s,press,'stopped');
+    if(press==='a'&&s.stoppedA&&s.safety.tagged&&!s.safety.inspected.a.shutdown) {
+      record(s,'a','shutdown');
+      if(hasMail(s.safety)&&!s.safety.mailDisposition) finishTraining(s);
+      else say(s,'Press A is stopped and tagged out.');
+    }
     return;
   }
   if(part==='front'||part==='rear'||part==='left'||part==='right'||part==='guard') record(s,press,part);

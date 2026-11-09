@@ -1,6 +1,6 @@
-import { Action, Icon, Sheet } from './components';
-import { gear, isGear, machinePart, positions, ROAD, type Gear, type Part } from './map';
-import { checklist, preparationRows, recordIssues, recordName, type PortfolioTab, type Session } from './state';
+import { Action, Icon } from './components';
+import { gear, isGear, machinePart, positions, ROAD, type Part } from './map';
+import { checklist, preparationPerformed, preparationRows, recordIssues, recordName, type PortfolioTab, type Session } from './state';
 import { filmStage, PPE_CUES, ppeBeat } from './cinematics';
 import { gearAction, markPreparation, markRecord, reviewRecords } from './engine';
 import { play } from './audio';
@@ -13,6 +13,11 @@ export function Clipboard({s,act,close,paper}:Props&{paper:RefObject<HTMLDivElem
   const page=s.pressPage;
   const ready=!!s.safety.mailDisposition && !s.safety.reported;
   const turn=(next:Session['pressPage'])=>act(()=>{s.pressPage=next;play('paper',s.settings.sound);});
+  const rows=page==='ppe'?preparationRows.map(([key,label])=>({label,key,done:preparationPerformed(s.safety,key),
+    marked:!!s.safety.recordedPpe[key],mark:(checked:boolean)=>markPreparation(s,key,checked)})):
+    checklist(page).map(([key,label])=>({label,key,done:!!s.safety.inspected[page][key],
+      marked:!!s.safety.recorded[page][key],mark:(checked:boolean)=>markRecord(s,page,key,checked)}));
+  const next=rows.find(row=>!row.done||!row.marked);
   return <div className="clipboard-layer" aria-hidden={s.panel!=='clipboard'}><div className="clipboard-surface" ref={paper}>
     <section className="clipboard" role="dialog" aria-label="Inspection clipboard">
       <header>
@@ -25,20 +30,18 @@ export function Clipboard({s,act,close,paper}:Props&{paper:RefObject<HTMLDivElem
       </nav>
       <div className="clipboard-paper" key={page}>
         <h3>{page==='ppe'?'PERSONAL PROTECTIVE EQUIPMENT':'MACHINE PRESS SAFETY INSPECTION'}</h3>
-        <p>{page==='ppe'?'Check the cabinet. Sound PPE protects you during training. Leave damaged equipment on the shelf.':
-          'Check the guards and all sides. Report defects and follow authorized isolation procedures.'}</p>
+        <p>{page==='ppe'?'Select equipment directly from the shelves. Inspect each item before putting it on.':
+          'Inspect in order. Keep clear of the tooling and follow authorized isolation procedures.'}</p>
         {page!=='ppe'&&<nav aria-label="Press inspection records" className="press-tabs">
           <button aria-pressed={page==='a'} onClick={()=>turn('a')}>Press A</button>
           <button aria-pressed={page==='b'} onClick={()=>turn('b')}>Press B</button>
         </nav>}
         <fieldset>
           <legend>Mark only what you personally verified.</legend>
-          {page==='ppe'?preparationRows.map(([key,label])=><label key={key} className="form-check">
-            <input type="checkbox" checked={!!s.safety.recordedPpe[key]} onChange={e=>act(()=>markPreparation(s,key,e.target.checked))}/>
-            <span>{label}</span>
-          </label>):checklist(page).map(([key,label])=><label key={key} className="form-check">
-            <input type="checkbox" checked={!!s.safety.recorded[page][key]} onChange={e=>act(()=>markRecord(s,page,key,e.target.checked))}/>
-            <span>{label}</span>
+          {rows.map((row,i)=><label key={row.key} className="form-check" aria-current={row===next?'step':undefined}>
+            <span className="step-number" aria-hidden="true">{i+1}</span>
+            <input type="checkbox" checked={row.marked} onChange={e=>act(()=>row.mark(e.target.checked))}/>
+            <span>{row.label}{row===next&&<small className="step-next" aria-hidden="true">{row.done?'NEXT · MARK THIS STEP':'NEXT · DO THIS STEP'}</small>}</span>
           </label>)}
         </fieldset>
       </div>
@@ -48,20 +51,6 @@ export function Clipboard({s,act,close,paper}:Props&{paper:RefObject<HTMLDivElem
       </footer>
     </section>
   </div></div>;
-}
-
-export function Cabinet({s,close,inspect,tag}:Props&{inspect:(id:Gear)=>void;tag:()=>void}) {
-  return <Sheet code="SAFETY PREPARATION" title="PPE cabinet" close={close} extra="cabinet-sheet">
-    <p>Choose an item to inspect or review your equipment.</p>
-    <ul className="cabinet-list">{(Object.keys(gear) as Gear[]).map(id=>{
-      const item=gear[id], worn=s.safety.ppe.includes(id), collected=s.safety.collectedPpe.includes(id);
-      return <li key={id}><div><strong>{item.name}</strong><small>{worn?'Equipped':collected?'Collected · on shelf':s.safety.inspectedPpe.includes(id)?'Inspected · on shelf':'On shelf'}</small></div>
-        <button onClick={()=>inspect(id)} aria-label={(worn?'Review ':'Inspect ')+item.name}>{worn?'Review':'Inspect'}</button></li>;
-    })}</ul>
-    <div className="cabinet-tag"><div><strong>OUT OF SERVICE tag</strong><small>{s.safety.tagged?'Attached to Press A':s.safety.tagHeld?'In your inventory':'On the cabinet hook'}</small></div>
-      {!s.safety.tagged&&!s.safety.tagHeld&&<button onClick={tag}>Collect tag</button>}
-    </div>
-  </Sheet>;
 }
 
 const details:Partial<Record<Part,string>>={
@@ -88,7 +77,7 @@ export function InspectionFocus({s,act,close}:Props) {
   }
   const [press,part]=machinePart(target)!;
   const detail=part==='status'?
-    (press==='a'?!s.stoppedA:s.pressMode!=='idle')?'Machine is not in its initial stopped state.':'Panel confirms the training press is stopped.':
+    (press==='a'?!s.stoppedA:s.pressMode!=='idle')?'Machine is not in its initial stopped state.':press==='a'&&s.safety.tagged?'Panel confirms the press is stopped and tagged out.':'Panel confirms the training press is stopped.':
     part==='guard'&&press==='a'?'A metal offcut is wedged beneath the displaced guard. Keep hands clear.':details[part];
   return <aside className="focus-card" aria-label="Machine inspection">
     <div><div className="record-label">MACHINE INSPECTION</div><h2>{positions[target].name}</h2><p>{detail}</p></div>
@@ -114,7 +103,10 @@ export function FilmOverlay({s,next,skip}:{s:Session;next:()=>void;skip:()=>void
     const hit=beat.time>=PPE_CUES[beat.slot];
     const captions={feet:hit?'The falling gear hits your foot.':'A heavy gear comes loose.',eyes:hit?'A metal fragment hits your eye.':'The press spits metal fragments.',ears:hit?'The ringing drowns out the room.':'Machinery noise surges.'};
     return <div key={stage} className={`film ppe-scene ppe-${beat.slot}${hit?' ppe-impact':''}`}>
-      <div className="film-caption" role="status"><Icon name="warning"/><strong>{captions[beat.slot]}</strong>{replaySkip}</div>
+      <div className="film-caption ppe-caption">
+        <div className="ppe-caption-text" role="status"><Icon name="warning"/><strong>{captions[beat.slot]}</strong></div>
+        {replaySkip&&<div className="ppe-caption-actions">{replaySkip}</div>}
+      </div>
     </div>;
   }
   if(stage==='near-impact') return <div className="film road-impact" aria-hidden="true"/>;

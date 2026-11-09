@@ -3,12 +3,12 @@ import { createRoot } from 'react-dom/client';
 import World, { type Markers } from './World';
 import Portfolio from './Portfolio';
 import { Action, Icon, Sheet } from './components';
-import { Cabinet, Clipboard, Ending, FilmOverlay, InspectionFocus } from './ShiftPanels';
+import { Clipboard, Ending, FilmOverlay, InspectionFocus } from './ShiftPanels';
 import { Workstation } from './Workstation';
 import { audioStatus, onAudioStatus, play, setAudioLevel, unlock, warmMusic } from './audio';
 import { gear, isGear, machinePart, positions, type Target } from './map';
 import { equipped, objective, observed, reset, save, startSession, usingCrossing, type Panel, type PortfolioTab, type Session } from './state';
-import { continueFilm, gearAction, interact, nearest, openNearby, say, skipFilm, turnHead } from './engine';
+import { continueFilm, gearAction, nearest, openNearby, say, skipFilm, turnHead } from './engine';
 import './style.css';
 
 function label(target:Target) {
@@ -132,7 +132,7 @@ function App() {
       if(key==='escape') {
         e.preventDefault();
         if(s.film) return;
-        if(s.panel==='clipboard' || s.panel==='cabinet' || s.panel==='mail' || s.panel==='ending' || s.focus) close();
+        if(s.panel==='clipboard' || s.panel==='mail' || s.panel==='ending' || s.focus) close();
         else pause();
       }
       if(key==='c' && s.started && !s.film && (!s.panel || s.panel==='clipboard')) {
@@ -273,7 +273,6 @@ function App() {
       <p>Return to the outdoor arrival point and clear this shift’s training record.</p>
       <div className="buttons"><Action kind="danger" onClick={()=>action(()=>{reset(s);warmMusic(false);setToast('');resumePanel.current=null;})}>Restart from arrival</Action><Action onClick={close}>Keep current shift</Action></div>
     </Sheet>}
-    {panel==='cabinet'&&<Cabinet s={s} act={action} close={close} inspect={id=>action(()=>interact(s,id))} tag={()=>action(()=>interact(s,'tag'))}/>}
     {s.started&&s.safety.clipboard&&<Clipboard s={s} act={action} close={close} paper={paper}/>}
     {panel==='mail'&&<Workstation s={s} act={action} close={close} monitor={monitor} clipboard={raiseClipboard}/>}
     {panel==='ending'&&<Ending explore={close} open={tab=>portfolio(tab,'ending')}/>}

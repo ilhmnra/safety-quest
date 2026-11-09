@@ -3,7 +3,7 @@ type Sample='horn'|'mail';
 
 const assets={horn:'truck-air-horn.wav',mail:'youve-got-mail.wav'} as const;
 const assetURL=(name:Sample)=>new URL(import.meta.env.BASE_URL+assets[name],document.baseURI).href;
-const hornGain=.68;
+const hornGain=.68*.8;
 const buffers=new Map<Sample,AudioBuffer>();
 const media=new Map<Sample,HTMLAudioElement>();
 let context: AudioContext | undefined;

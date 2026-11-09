@@ -55,6 +55,11 @@ kbd{padding:4px 5px;border:1px solid #b7cab56b;border-radius:3px;font:700 9px/1 
 .marker:hover .marker-sigil{filter:brightness(1.16)}
 .marker-name{margin-top:5px;padding:3px 6px;border-radius:3px;background:#14272bf0;color:#f6ebd4;border:1px solid #93a99d58;font:700 10px/1.15 var(--mono);letter-spacing:-.04em}
 .marker[data-primary=true] .marker-name{border-color:#efbe6e9c}
+.marker[data-outlined=true] .marker-sigil{opacity:.48;animation:none;box-shadow:0 2px 6px #10252c9f}
+.marker[data-outlined=true]:hover .marker-sigil,.marker[data-outlined=true]:focus-visible .marker-sigil{opacity:.83}
+.guide-turn{position:absolute;z-index:2;left:50%;bottom:max(88px,14dvh);transform:translateX(-50%);pointer-events:none;padding:3px 12px;border-radius:18px;background:#182e33b3;color:#ffd18b;font:800 17px/1.2 var(--mono);letter-spacing:.14em}
+.guide-turn[data-side=left]::after{content:"‹ · · ·"}
+.guide-turn[data-side=right]::after{content:"· · · ›"}
 .world-beacon{width:10px;height:10px;border:1px solid #f3cb93;border-radius:50%;box-shadow:0 0 14px #ffd084;background:#fbce87;opacity:.65}
 @keyframes signal{50%{box-shadow:0 0 0 7px #f7c47724,0 0 24px #f8cb71ad}}
 .reticle{position:absolute;top:50%;left:50%;width:7px;height:7px;border:1px solid #e9e0c2a9;transform:translate(-50%,-50%) rotate(45deg);box-shadow:0 0 8px #2138388c}
@@ -139,6 +144,12 @@ kbd{padding:4px 5px;border:1px solid #b7cab56b;border-radius:3px;font:700 9px/1 
 .road-impact{background:#0e171a;animation:fade-in .15s ease-out both}
 .ppe-fade{background:#0e171a;animation:fade-in .22s ease-out both}
 .ppe-scene.ppe-impact{box-shadow:inset 0 0 18vmin 5vmin #b63c394c}
+.ppe-scene .ppe-caption{width:min(480px,calc(100vw - 28px));padding:10px 13px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;text-align:left}
+.ppe-caption-text{display:grid;grid-template-columns:20px minmax(0,1fr);align-items:start;gap:9px;min-height:42px;align-content:center}
+.ppe-caption-text svg{width:19px;height:19px;color:var(--amber)}
+.ppe-caption-actions{display:flex;justify-content:flex-end}
+.ppe-caption .ppe-caption-actions .film-skip{margin:0;min-height:44px;white-space:nowrap}
+@media(max-width:460px){.ppe-scene .ppe-caption{grid-template-columns:minmax(0,1fr);gap:4px}.ppe-caption-text{min-height:38px}}
 .ppe-eyes.ppe-impact{background:radial-gradient(ellipse at center,#e88d8829,#9e313963);animation:ppe-vision .55s ease-out}
 .ppe-ears.ppe-impact{background:radial-gradient(ellipse at center,transparent 30%,#a94a4d46)}
 .ppe-remedies{display:grid;gap:8px;margin:0 0 15px;padding-left:1.2em;text-align:left;color:var(--dim);font-size:14px}
@@ -276,6 +287,9 @@ kbd{padding:4px 5px;border:1px solid #b7cab56b;border-radius:3px;font:700 9px/1 
 .form-check input:checked{background:#355144;border-color:#355144}
 .form-check input:checked::after{content:"";width:5px;height:9px;border:solid #ead9ad;border-width:0 2px 2px 0;transform:translateY(-1px) rotate(42deg)}
 .form-check input:focus-visible{outline:2px solid #355144;outline-offset:3px}
+.form-check .step-number{min-width:16px;text-align:right;color:#485647;font:750 11px/1 var(--mono);flex:none}
+.form-check[aria-current=step]{background:#e8d29c;box-shadow:inset 3px 0 #9a6d36}
+.step-next{display:block;margin-top:3px;color:#533f27;font:800 9px/1.25 var(--mono);letter-spacing:.02em}
 .clipboard footer{display:flex;gap:8px;justify-content:space-between;align-items:center;margin-top:8px}
 .form-submit{display:flex;align-items:center;gap:6px}
 
@@ -365,12 +379,6 @@ kbd{padding:4px 5px;border:1px solid #b7cab56b;border-radius:3px;font:700 9px/1 
 .clipboard .press-tabs button{min-height:31px;padding:3px 9px;font-size:11px}
 .clipboard .form-check{min-height:34px;padding:3px 1px;font-size:12px}
 .clipboard .form-check input{min-width:16px;min-height:16px}
-.cabinet-list{list-style:none;margin:10px 0;padding:0;display:grid;gap:6px}
-.cabinet-list li,.cabinet-tag{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 8px;background:#22383a;border:1px solid #91ad9b40;border-radius:5px}
-.cabinet-list small,.cabinet-tag small{display:block;color:#b2c6ba;font-size:11px}
-.cabinet-list button,.cabinet-tag button{min-height:36px;padding:4px 9px;background:#344c48;color:#f0e3ba;border:1px solid #9cb2a476;border-radius:4px;font-size:12px;font-weight:700}
-.cabinet-tag{background:#392f2a}
-.cabinet-tag strong{color:#f1ce98}
 
 /* The Works 98 desktop is projected onto the physical CRT on wide screens. */
 .crt-layer{position:absolute;inset:0;z-index:11;pointer-events:none}
@@ -441,8 +449,6 @@ kbd{padding:4px 5px;border:1px solid #b7cab56b;border-radius:3px;font:700 9px/1 
  .retro-copy{padding:7px}
  .embedded-directory .terminal-grid{grid-template-columns:75px 1fr}
  .embedded-directory .terminal-tabs button>span{display:none}
- .cabinet-list li{padding-block:3px}
- .cabinet-list button,.cabinet-tag button{min-height:42px}
 }
 
 /* Readable beats and a restrained ending reveal */
