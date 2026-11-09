@@ -333,7 +333,7 @@ function PpeEffects({s}:{s:Session}) {
     });
     if(impact&&beat) {
       const fall=T.MathUtils.clamp((beat.time-PPE_FOOT_RELEASE)/(PPE_CUES.feet-PPE_FOOT_RELEASE),0,1);
-      metal.position.set(.14,T.MathUtils.lerp(2.08,.21,fall**2),T.MathUtils.lerp(-.78,-.38,fall));
+      metal.position.set(T.MathUtils.lerp(.52,.23,fall),T.MathUtils.lerp(2.08,.21,fall**2),T.MathUtils.lerp(-1.17,-.55,fall));
       metal.rotation.set(.47*(1-fall),Math.min(beat.time,PPE_CUES.feet)*4,.31*(1-fall));
       legs.current[1]!.rotation.x=-.06*T.MathUtils.smoothstep(beat.time,PPE_CUES.feet,PPE_CUES.feet+.1);
     }
@@ -353,13 +353,13 @@ function PpeEffects({s}:{s:Session}) {
   });
   return <>
     <group ref={feet} visible={false}>
-      <GlowingBox position={[0,1.16,.02]} size={[.55,.34,.30]} color="#4c6266"/>
-      <GlowingBox position={[0,1.08,-.01]} size={[.55,.07,.31]} color="#343e40"/>
+      <GlowingBox position={[0,1.15,.135]} size={[.55,.30,.30]} color="#4c6266"/>
+      <GlowingBox position={[0,1.08,.128]} size={[.55,.07,.31]} color="#343e40"/>
       {[-.14,.14].map((x,i)=><group key={x} ref={g=>{legs.current[i]=g;}} position={[x,1.04,0]}>
-        <mesh geometry={cube} position={[0,-.24,-.065]} rotation-x={.24} scale={[.245,.56,.25]} material={material('#566e70')}/>
+        <mesh geometry={cube} position={[0,-.24,-.017]} rotation-x={.30} scale={[.245,.56,.25]} material={material('#566e70')}/>
         <GlowingBox position={[0,-.49,-.13]} size={[.218,.16,.22]} color="#677c78"/>
-        <mesh geometry={cube} position={[0,-.72,-.118]} rotation-x={-.05} scale={[.195,.47,.18]} material={material('#4c6266')}/>
-        <GlowingBox position={[0,-.974,-.218]} size={[.24,.132,.43]} color={s.safety.ppe.includes('boots')?'#343a39':footTone}/>
+        <mesh geometry={cube} position={[0,-.72,-.223]} rotation-x={.40} scale={[.195,.53,.19]} material={material('#4c6266')}/>
+        <GlowingBox position={[0,-.974,-.355]} size={[.24,.132,.43]} color={s.safety.ppe.includes('boots')?'#343a39':footTone}/>
       </group>)}
       <group ref={falling} visible={false}>
         <mesh geometry={hubGeometry} position={[0,.075,0]} material={material(steel)} receiveShadow/>
@@ -764,7 +764,7 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper,turnCue}:Scen
       yaw=turnTo(s.pos,[pressX[f.press],PRESS_Z]);
       pitch=-.07;
       if(beat?.slot==='feet') {
-        pitch=T.MathUtils.lerp(-.18,-1.27,T.MathUtils.smoothstep(beat.time,.16,1.02));
+        pitch=T.MathUtils.lerp(-.18,-1.20,T.MathUtils.smoothstep(beat.time,.16,1.02));
       }
       if(beat&&!s.settings.reduced&&beat.time>=PPE_CUES[beat.slot]) {
         const age=beat.time-PPE_CUES[beat.slot];
