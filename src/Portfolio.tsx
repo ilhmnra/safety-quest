@@ -9,6 +9,7 @@ function Link({href,children}:{href:string;children:React.ReactNode}) {
   return <a href={href} target="_blank" rel="noopener noreferrer">{children} <span aria-hidden>↗</span></a>;
 }
 const skills = [
+  ['Safety Quest','React','TypeScript','Three.js','React Three Fiber','Vite','Web Audio','localStorage','GitHub Pages','First-person interaction','Responsive controls','Simulation state'],
   ['Business analysis','Requirements gathering','Stakeholder interviews','Process mapping','Data modeling','UAT'],
   ['Software and data','C#','ASP.NET MVC','Python','SQL','SQL Server'],
   ['Delivery and quality','Agile development','Functional testing','AI evaluation','Rubric design','RL environment QA'],

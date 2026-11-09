@@ -260,7 +260,10 @@ function App() {
     {s.film&&<FilmOverlay s={s} next={next} skip={skip}/>}
     {panel==='pause'&&<Sheet code="VISITOR TERMINAL / PAUSED" title="Safety Quest" close={close} extra="pause-sheet">
       <div className="buttons"><Action kind="primary" onClick={close}>Resume <Icon name="arrow"/></Action></div>
-      <div className="pause-links"><Action onClick={()=>portfolio('About Me','pause')}>View Portfolio</Action></div>
+      <div className="pause-links">
+        <Action onClick={()=>portfolio('About Me','pause')}>View Portfolio</Action>
+        <a className="action neutral" href="https://ilhmnra.github.io/projects/safety-quest/" target="_blank" rel="noopener noreferrer">Read Case Study</a>
+      </div>
       <div className="buttons"><Action onClick={()=>action(()=>{s.panel='settings';})}>Controls &amp; Settings</Action><Action onClick={()=>action(()=>{s.panel='restart';})}>Restart Experience</Action></div>
       <p className="fine-print">Created by Aulia Ilham Nur Alfian</p>
     </Sheet>}
