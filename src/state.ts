@@ -1,6 +1,6 @@
 import { DESK, distance, gear, positions, ppeOrder, PRESS, ROAD, START, type Gear, type Part, type Point, type Press, type Target } from './map';
 import type { Film } from './cinematics';
-import { fromSouth, startTraffic, type TrafficSide } from './traffic';
+import { fromSouth, startTraffic, type TrafficSide, type TruckDirection } from './traffic';
 
 export type Inspection = 'stopped' | 'front' | 'rear' | 'left' | 'right' | 'guard' | 'tagged' | 'cycle' | 'shutdown' | 'noDefects' | 'secured';
 export type PreparationCheck = 'eyes'|'ears'|'feet'|'tag';
@@ -57,6 +57,7 @@ export type Session = {
   seenFilms:Set<Film["kind"]>;
   roadClear: boolean;
   crossingHeading: number|null;
+  crossingDanger: {side:TruckDirection; holdView:boolean}|null;
   trafficSide:TrafficSide|null;
   gaze: {left:number; right:number; side:'left'|'right'|null; dwell:number; curb:'south'|'north'|null; checked:boolean};
   gazeSelection:'left'|'center'|'right'|null;
@@ -86,7 +87,7 @@ function read() {
   try { return JSON.parse(localStorage.getItem(key) ?? 'null'); } catch { return null; }
 }
 const freshRuntime = () => ({
-  desktop:'home' as const, look:null,focus:null,pressPage:'ppe' as const, clipboardBack:null, controlPress:null, nav:null, film:null, seenFilms:new Set<Film["kind"]>(), roadClear:false, crossingHeading:null, trafficSide:null,
+  desktop:'home' as const, look:null,focus:null,pressPage:'ppe' as const, clipboardBack:null, controlPress:null, nav:null, film:null, seenFilms:new Set<Film["kind"]>(), roadClear:false, crossingHeading:null, crossingDanger:null, trafficSide:null,
   gaze:{left:-Infinity,right:-Infinity,side:null,dwell:0,curb:null,checked:false},gazeSelection:null,time:0,traffic:startTraffic(), stoppedA:true,
   faultTime:0,pressTime:0,pressMode:'idle' as const,notification:'',
 });
@@ -184,12 +185,14 @@ export function recordIssues(s:Safety):RecordIssue[] {
   return issues;
 }
 export const recordName=(page:InspectionPage)=>page==='ppe'?'PPE inspection':'Press '+page.toUpperCase();
-export const nearCrossing = ([x,z]:Point) => Math.abs(x)<2.8 && (z>=ROAD.near && z<18.65 || z<=ROAD.far && z>4.7);
+const crossingApproach=4.65;
+export const nearCrossing = ([x,z]:Point) => Math.abs(x)<3.2 &&
+  (z>=ROAD.near && z<ROAD.near+crossingApproach || z<=ROAD.far && z>ROAD.far-crossingApproach);
 export const observed = (s:Session,side:'left'|'right') => s.gaze.curb===(fromSouth(s.pos)?'south':'north') && (s.gaze.checked || s.time-s.gaze[side]<9) && Number.isFinite(s.gaze[side]);
 export const usingCrossing = (s:Session) => nearCrossing(s.pos) && (s.gaze.checked || !!s.gazeSelection ||
-  observed(s,'left') || observed(s,'right') || Math.cos(s.yaw)*(fromSouth(s.pos)?1:-1)>.23);
+  observed(s,'left') || observed(s,'right') || Math.cos(s.yaw)*(fromSouth(s.pos)?1:-1)>-.12);
 export function objective(s:Session):Target {
-  if(s.pos[1]>ROAD.near) return nearCrossing(s.pos)?'arrival':'crossing';
+  if(s.pos[1]>=ROAD.near) return nearCrossing(s.pos)?'arrival':'crossing';
   if(nearCrossing(s.pos) && (s.gazeSelection || observed(s,'left') || observed(s,'right'))) return 'arrival-south';
   if(!s.safety.door) return 'door';
   if(!s.safety.clipboard) return 'clipboard';

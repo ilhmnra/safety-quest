@@ -60,6 +60,7 @@ kbd{padding:4px 5px;border:1px solid #b7cab56b;border-radius:3px;font:700 9px/1 
 .guide-turn{position:absolute;z-index:2;left:50%;bottom:max(88px,14dvh);transform:translateX(-50%);pointer-events:none;padding:3px 12px;border-radius:18px;background:#182e33b3;color:#ffd18b;font:800 17px/1.2 var(--mono);letter-spacing:.14em}
 .guide-turn[data-side=left]::after{content:"‹ · · ·"}
 .guide-turn[data-side=right]::after{content:"· · · ›"}
+.game:has(.gaze-rail) .guide-turn{bottom:max(179px,calc(env(safe-area-inset-bottom) + 169px))}
 .world-beacon{width:10px;height:10px;border:1px solid #f3cb93;border-radius:50%;box-shadow:0 0 14px #ffd084;background:#fbce87;opacity:.65}
 @keyframes signal{50%{box-shadow:0 0 0 7px #f7c47724,0 0 24px #f8cb71ad}}
 .reticle{position:absolute;top:50%;left:50%;width:7px;height:7px;border:1px solid #e9e0c2a9;transform:translate(-50%,-50%) rotate(45deg);box-shadow:0 0 8px #2138388c}
@@ -248,7 +249,7 @@ kbd{padding:4px 5px;border:1px solid #b7cab56b;border-radius:3px;font:700 9px/1 
 .creator-link{font:700 11px/1.4 var(--mono);text-decoration:none;color:#b9cfc0;padding:5px 4px}
 .creator-link:hover{color:var(--amber)}
 .welcome-actions .text-button{min-height:43px}
-.gaze-rail{position:absolute;bottom:max(77px,calc(env(safe-area-inset-bottom) + 66px));left:50%;transform:translateX(-50%);width:min(320px,calc(100% - 28px));display:flex;justify-content:space-between;gap:8px}
+.gaze-rail{position:absolute;bottom:max(77px,calc(env(safe-area-inset-bottom) + 66px));left:50%;transform:translateX(-50%);width:min(320px,calc(100% - 28px));display:flex;justify-content:space-between;gap:8px;pointer-events:none}
 .gaze-rail button{pointer-events:auto;display:flex;align-items:center;gap:7px;min-height:44px;padding:0 9px;color:#ebefdd;background:#16292cee;border:1px solid #9fb6a680;border-radius:6px;font:800 11px/1 var(--mono);letter-spacing:.07em}
 .gaze-rail button>span:first-child{font-size:21px;color:var(--amber)}
 .gaze-rail .eye{display:flex;color:#8ea69a}

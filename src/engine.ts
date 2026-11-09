@@ -1,7 +1,7 @@
 import { MathUtils } from 'three';
 import { play, setHearingEffect, warmMusic } from './audio';
 import { canContinue, filmStage, PPE_BEAT, PPE_CUES, PPE_FADE, ppeBeat, REACH_CUT, REACH_JOLT, ROAD_IMPACT_LEAD } from './cinematics';
-import { advanceTraffic, crossingThreat, dangerFilm, fromSouth, roadOccupied } from './traffic';
+import { advanceTraffic, approachingLane, crossingThreat, dangerFilm, fromSouth, inTruckLane, roadOccupied, truckFrom } from './traffic';
 import { DESK, distance, gear, inCrossing, isGear, machinePart, onRoad, positions, PRESS, pressHazard, ROAD, route, solid, START, WALK_SPEED, type Gear, type Part, type Point, type Press, type Target } from './map';
 import { equipped, hasMail, nearCrossing, observed, recordIssues, recordName, safeToStart, save, unsafePpe, type Inspection, type PreparationCheck, type Session } from './state';
 
@@ -27,6 +27,7 @@ function resetCrossing(s:Session) {
   s.roadClear=false;
   s.trafficSide=null;
   s.crossingHeading=null;
+  s.crossingDanger=null;
   s.gaze=newGaze();
   s.gazeSelection=null;
 }
@@ -162,8 +163,9 @@ export function interact(s:Session,target:Target) {
 export function navigate(s:Session,destination:Target|Point) {
   const target=typeof destination==='string'?destination:undefined;
   const point=target?positions[target].point:destination as Point;
-  const crossingTarget=target==='arrival'||target==='arrival-south';
-  const path=walkingRoute(s,point,crossingTarget);
+  const across=fromSouth(s.pos)?point[1]<ROAD.near:point[1]>ROAD.far;
+  const clearAtStart=s.roadClear&&nearCrossing(s.pos)&&across&&inCrossing(point);
+  const path=walkingRoute(s,point);
   if(!path) { say(s,'There is no clear walking route there.'); return; }
   // Keep the entire approach collision-free, but stop as soon as the final leg enters interaction range.
   if(target && !['arrival','arrival-south','crossing','crossing-north'].includes(target)) {
@@ -175,13 +177,13 @@ export function navigate(s:Session,destination:Target|Point) {
   s.panel=null;
   s.focus=null;
   s.look=null;
-  s.nav={path,target,end:path[path.length-1],clearAtStart:crossingTarget&&s.roadClear};
+  s.nav={path,target,end:path[path.length-1],clearAtStart};
 }
 
-export function walkingRoute(s:Session,point:Point,crossingTarget=false) {
+export function walkingRoute(s:Session,point:Point) {
   const south=fromSouth(s.pos);
   const towardRoad=south?point[1]<ROAD.near:point[1]>ROAD.far;
-  if((s.roadClear||crossingTarget) && nearCrossing(s.pos) && towardRoad && inCrossing(point)) {
+  if(nearCrossing(s.pos) && towardRoad && inCrossing(point)) {
     const near=positions[south?'crossing':'crossing-north'].point;
     const far=positions[south?'arrival':'arrival-south'].point;
     const first=route(s.pos,near,s.safety.door);
@@ -439,14 +441,29 @@ export function reviewRecords(s:Session) {
 
 function roadStep(s:Session,next:Point) {
   if(!onRoad(next)) return 'go';
-  if(s.roadClear && onRoad(s.pos) && s.crossingHeading!==null) return roadOccupied(s,next)?'wait':'go';
+  const entering=s.crossingHeading===null;
+  const south=entering?fromSouth(s.pos):s.crossingHeading===0;
+  const firstTruck=south?1:-1;
   const zebra=inCrossing(next);
-  if(zebra&&s.trafficSide&&s.nav?.clearAtStart) {
+  if(entering&&zebra&&s.trafficSide&&s.nav?.clearAtStart) {
     s.nav=null;
     return 'wait';
   }
-  if(!zebra || !s.roadClear) {
-    s.film=dangerFilm(s,next,zebra,observed(s,'left'),observed(s,'right'));
+
+  let danger=s.crossingDanger;
+  if(entering&&zebra&&!s.roadClear) {
+    const left=observed(s,'left'), right=observed(s,'right');
+    const holdView=left!==right;
+    const source=holdView?(left?'right':'left'):s.trafficSide;
+    danger={side:source?truckFrom(source,south):firstTruck,holdView};
+  }
+  if(danger&&zebra&&inTruckLane(next,danger.side)&&s.gaze.checked&&!approachingLane(s,next,danger.side)) {
+    s.crossingDanger=danger=null;
+    s.roadClear=true;
+  }
+  if(!zebra || danger&&inTruckLane(next,danger.side)) {
+    const side=zebra&&danger?danger.side:(fromSouth(next)?1:-1);
+    s.film=dangerFilm(s,next,south,side,zebra,zebra&&!!danger?.holdView);
     s.pos=next;
     s.nav=null;
     s.look=null;
@@ -454,7 +471,12 @@ function roadStep(s:Session,next:Point) {
     resetCrossing(s);
     return 'film';
   }
-  return roadOccupied(s,next)?'wait':'go';
+  if(roadOccupied(s,next)) return 'wait';
+  if(entering) {
+    s.crossingHeading=south?0:Math.PI;
+    s.crossingDanger=danger;
+  }
+  return 'go';
 }
 
 function move(s:Session,next:Point) {
@@ -464,11 +486,10 @@ function move(s:Session,next:Point) {
   if(status==='wait') return false;
   const wasOnRoad=onRoad(s.pos);
   const press=pressHazard(next),previousPress=pressHazard(s.pos);
-  if(!wasOnRoad && onRoad(next)) s.crossingHeading=next[1]<s.pos[1]?0:Math.PI;
   s.pos=next;
-  if(wasOnRoad && !onRoad(next) && s.roadClear) {
+  if(wasOnRoad && !onRoad(next)) {
     const reachedFactory=next[1]<=ROAD.far+ROAD_EDGE_BUFFER;
-    if(reachedFactory && !s.safety.crossed) {
+    if(reachedFactory && s.crossingHeading===0 && s.roadClear && !s.safety.crossed) {
       s.safety.crossed=true;
       save(s);
       say(s,'The training center is just ahead.');
@@ -573,7 +594,7 @@ export function tick(s:Session,dt:number,keys:Set<string>,timelineDt=dt):boolean
         return true;
       }
     } else {
-      const watched=nearCrossing(s.pos) && (observed(s,'left') || observed(s,'right')) && !s.roadClear;
+      const watched=s.crossingDanger?.holdView || nearCrossing(s.pos) && (observed(s,'left') || observed(s,'right')) && !s.roadClear;
       if(!watched) {
         const turn=angleDelta(s.yaw,turnTo(s.pos,dest));
         s.yaw+=turn*(1-Math.exp(-dt*(s.settings.reduced?12:4.8)));

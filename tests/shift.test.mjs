@@ -93,7 +93,7 @@ test('gaze uses rendered yaw, expires, and cues the unchecked side before camera
     look(s,side);
     assert.ok(state.observed(s,side));
     engine.navigate(s,[0,6.1]);
-    tickFor(s,.5);
+    tickFor(s,2.5);
     assert.equal(s.film?.kind,'near');
     assert.equal(s.film.side,side==='left'?1:-1);
     assert.ok(s.film.unchecked && s.film.holdView);
@@ -137,7 +137,7 @@ test('the warning tracks actual approaching trucks and mirrors on the return cur
     assert.equal(s.roadClear,false);
     assert.notEqual(s.trafficSide,side);
     engine.navigate(s,from[1]>map.ROAD.near?[0,5.75]:[0,16.62]);
-    tickFor(s,.7);
+    for(let t=0;t<2.6&&!s.film;t+=.02) engine.tick(s,.02,idle);
     assert.equal(s.film?.kind,'near');
     assert.equal(s.film.side,-1);
   }
@@ -180,38 +180,94 @@ test('leaving the curb clears both observations and the traffic warning',()=>{
   assert.equal(state.observed(s,'right'),false);
 });
 
-test('a curb marker tap stops safely if a real truck closes the gap before entry',()=>{
-  const s=session();
-  s.traffic=[-18,18];
-  look(s,'left');look(s,'right');
-  engine.openNearby(s,'arrival');
-  assert.equal(s.nav.target,'arrival');
-  s.traffic=[24,18];
-  tickFor(s,1);
-  assert.ok(s.pos[1]>=map.ROAD.near);
-  assert.equal(s.nav,null);
-  assert.equal(s.film,null);
-  assert.equal(s.trafficSide,'right');
-  assert.equal(s.gaze.checked,true);
+test('a crossing tap during a clear window stops at the curb if a real truck closes the gap',()=>{
+  for(const destination of ['arrival',[.65,5.9]]) {
+    const s=session();
+    s.traffic=[-18,18];
+    look(s,'left');look(s,'right');
+    engine.navigate(s,destination);
+    assert.equal(s.nav.clearAtStart,true);
+    s.traffic=[24,18];
+    tickFor(s,1);
+    assert.ok(s.pos[1]>=map.ROAD.near);
+    assert.equal(s.nav,null);
+    assert.equal(s.film,null);
+    assert.equal(s.trafficSide,'right');
+    assert.equal(s.gaze.checked,true);
+  }
 });
 
-test('unchecked zebra crossings accept a tap or a step before the truck incident',()=>{
-  for(const [point,target,fromSouth] of [[[0,16.45],'arrival',true],[[0,6.36],'arrival-south',false]]) {
+test('unchecked zebra crossings walk into the truck lane before the incident from both curbs',()=>{
+  for(const [point,destination,fromSouth] of [[[0,16.45],[0,5.75],true],[[0,6.36],[0,16.62],false]]) {
     for(const checked of [null,'left','right']) {
       const s=session(point);
+      s.traffic=[-24,24];
       s.yaw=fromSouth?0:Math.PI;
       if(checked) look(s,checked);
-      assert.equal(engine.targetAvailable(s,target),true);
-      if(checked) tickFor(s,.8,new Set(['w']));
-      else {engine.openNearby(s,target);tickFor(s,.8);}
+      const direction=checked==='right'?(fromSouth?-1:1):(fromSouth?1:-1);
+      const keys=checked==='left'?new Set(['w']):idle;
+      if(keys===idle) engine.navigate(s,destination);
+      let walkedInRoad=false;
+      for(let t=0;t<3&&!s.film;t+=.02) {
+        engine.tick(s,.02,keys);
+        if(s.film) break;
+        assert.equal(traffic.inTruckLane(s.pos,direction),false);
+        if(map.onRoad(s.pos)) walkedInRoad=true;
+      }
+      assert.ok(walkedInRoad);
       assert.equal(s.film?.kind,'near');
       assert.ok(map.onRoad(s.pos)&&map.inCrossing(s.pos));
       assert.equal(s.film.holdView,Boolean(checked));
-      if(checked) assert.equal(s.film.side,(checked==='left')===fromSouth?1:-1);
+      assert.equal(s.film.side,direction);
+      assert.ok(traffic.inTruckLane(s.pos,direction));
+      assert.equal(s.film.curb,fromSouth?map.ROAD.near:map.ROAD.far);
       engine.endFilm(s);
       assert.equal(map.onRoad(s.pos),false);
     }
   }
+});
+
+test('manual gaze is counted from the early approach and survives centering and walking to both curbs',()=>{
+  for(const [point,destination,heading] of [[[0,19.75],[0,5.75],0],[[0,3.05],[0,16.62],Math.PI]]) {
+    const s=session(point);
+    s.yaw=heading;
+    s.traffic=[-20,20];
+    assert.ok(state.usingCrossing(s));
+    look(s,'left');look(s,'right');
+    assert.ok(s.roadClear);
+    engine.turnHead(s,'center');
+    engine.navigate(s,destination);
+    tickFor(s,5.5);
+    assert.deepEqual(s.pos,destination);
+    assert.equal(s.film,null);
+  }
+});
+
+test('retreating to the starting curb discards a pending encounter',()=>{
+  const s=session();
+  look(s,'right');
+  engine.navigate(s,[0,5.75]);
+  tickFor(s,.8);
+  assert.ok(s.crossingDanger&&map.onRoad(s.pos));
+  engine.navigate(s,[0,16.45]);
+  tickFor(s,1);
+  assert.equal(s.crossingHeading,null);
+  assert.equal(s.crossingDanger,null);
+  assert.equal(state.observed(s,'right'),false);
+});
+
+test('a checked lane no longer triggers an incident once the real truck has passed',()=>{
+  const s=session();
+  s.traffic=[-20,-30];
+  look(s,'left');look(s,'right');
+  assert.equal(s.trafficSide,'left');
+  engine.navigate(s,[0,5.75]);
+  tickFor(s,.65);
+  assert.ok(s.crossingDanger&&map.onRoad(s.pos));
+  s.traffic=[-24,24];
+  tickFor(s,3);
+  assert.equal(s.film,null);
+  assert.equal(s.safety.crossed,true);
 });
 
 test('all eight PPE combinations at both presses produce only the affected beats in order',()=>{
@@ -410,20 +466,18 @@ test('the clipboard and objective share inspection order, and old Press A cycle 
   assert.deepEqual(state.recordIssues(s.safety),[]);
 });
 
-test('a camera-facing guide bends toward a walkable route and does not lead off the curb',()=>{
+test('floor routes stay on the starting bank to the curb and detour around indoor obstacles',()=>{
   const origin=[0,22.7], curb=[0,16];
-  const guide=map.facingGuide(origin,[curb],.9,1.3,false,false);
-  assert.ok(guide[0][0]<-.6);
+  const guide=map.route(origin,curb,false);
   assert.deepEqual(guide.at(-1),curb);
   for(const [i,point] of guide.entries()) {
     assert.ok(point[1]>=map.ROAD.near);
     assert.ok(map.clearSegment(i?guide[i-1]:origin,point,false));
   }
-  const indoor=map.positions.ppe.point;
+  const indoor=[7.7,-7.1];
   const target=map.positions['a-front'].point;
   const route=map.route(indoor,target,true);
-  const bent=map.facingGuide(indoor,route,Math.PI/2,1.3,true,true);
-  for(const [i,point] of bent.entries()) assert.ok(map.clearSegment(i?bent[i-1]:indoor,point,true));
+  for(const [i,point] of route.entries()) assert.ok(map.clearSegment(i?route[i-1]:indoor,point,true));
 });
 
 test('object approach stops within reach of the stand point and leaves room from the object',()=>{

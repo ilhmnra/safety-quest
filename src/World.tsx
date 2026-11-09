@@ -2,8 +2,8 @@ import { memo, useEffect, useMemo, useRef, type MutableRefObject } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as T from 'three';
-import { architecture, officeArchitecture, press, truck, person, skin, uniform, type Box, ink, steel, amber, ochre, lamp, alert, tealLamp, cream, slate } from './models';
-import { distance, facingGuide, gear, isGear, machinePart, onRoad, positions, PREP_TABLE, PRESS_Z, ROAD, pressX, props, route, walls, type Gear, type Point, type Press, type Target, type Vec } from './map';
+import { architecture, cabinetBoxes, officeArchitecture, press, truck, person, skin, uniform, type Box, ink, steel, amber, ochre, lamp, alert, tealLamp, cream, slate } from './models';
+import { distance, gear, isGear, machinePart, onRoad, positions, PREP_TABLE, PRESS_Z, ROAD, pressX, props, route, walls, type Gear, type Point, type Press, type Target, type Vec } from './map';
 import { hasMail, nearCrossing, objective, observed, usingCrossing, type Session } from './state';
 import { filmStage, OFFICE_SHIFT, PPE_CUES, PPE_FOOT_RELEASE, ppeBeat, REACH_CUT, REACH_JOLT, ROAD_IMPACT_LEAD, ROAD_REACTION_DELAY } from './cinematics';
 import { encounterTruck, fromSouth, truckMotion } from './traffic';
@@ -468,14 +468,16 @@ const ground=new T.Plane(new T.Vector3(0,1,0),0);
 const hit=new T.Vector3();
 const targetList=Object.entries(positions) as [Target,(typeof positions)[Target]][];
 type OutlineShape={boxes:Box[];at:Vec;tilt?:number};
-const outlineShapes:Partial<Record<Target,OutlineShape>>={
+type OutlineTarget=Target|`press-${Press}`;
+const outlineShapes:Partial<Record<OutlineTarget,OutlineShape>>={
   clipboard:{boxes:boardBoxes,at:[PREP_TABLE[0],1.15,PREP_TABLE[1]],tilt:-1.23},
+  ppe:{boxes:cabinetBoxes,at:[0,0,0]},
   tag:{boxes:[[0,.193,0,.055,.16,.042,ink],[0,0,0,.35,.32,.037,ink]],at:positions.tag.anchor},
   mail:{boxes:architecture.filter(([x,y,z])=>x===7.6&&y>1.1&&y<1.95&&z< -11.40&&z> -12.3),at:[0,0,0]},
 };
-for(const [id,boxes] of Object.entries(equipmentModels) as [Gear,Box[]][]) outlineShapes[id]={boxes,at:gear[id].anchor};
 for(const [id,model] of [['a',modelA],['b',modelB]] as const) {
   const at:Vec=[pressX[id],.105,PRESS_Z];
+  outlineShapes[`press-${id}`]={boxes:model,at};
   const pieces={
     front:model.filter(([x,y,z])=>x===0&&y===3.1&&z>1),
     status:model.filter(([x,y])=>x===.86&&y===2.235),
@@ -492,8 +494,8 @@ for(const [id,model] of [['a',modelA],['b',modelB]] as const) {
 }
 const glowCore=new T.MeshBasicMaterial({color:'#ffce7f',side:T.BackSide,transparent:true,opacity:.91,depthWrite:false});
 const glowHalo=new T.MeshBasicMaterial({color:'#ffae54',side:T.BackSide,transparent:true,opacity:.20,depthWrite:false});
-function ObjectOutline({shape,bind}:{shape:OutlineShape;bind:(group:T.Group|null)=>void}) {
-  return <group ref={bind} visible={false} position={shape.at} rotation-x={shape.tilt??0}>
+function ObjectOutline({id,shape,bind}:{id:OutlineTarget;shape:OutlineShape;bind:(group:T.Group|null)=>void}) {
+  return <group name={'objective-'+id} ref={bind} visible={false} position={shape.at} rotation-x={shape.tilt??0}>
     {([['halo',glowHalo,.048],['core',glowCore,.022]] as const).map(([key,mat,margin])=><instancedMesh key={key} args={[cube,mat,shape.boxes.length]} renderOrder={key==='halo'?2:3} ref={mesh=>{
       if(!mesh) return;
       shape.boxes.forEach(([x,y,z,w,h,d,,ry,rz],i)=>{
@@ -532,24 +534,26 @@ function placeSurface(el:HTMLDivElement,a:T.Vector3,b:T.Vector3,width:number,hei
   el.dataset.aligned=String(interactive);
 }
 
-function plotGuide(mesh:T.InstancedMesh,start:Point,path:Point[],lead:number) {
+function plotGuide(mesh:T.InstancedMesh,start:Point,path:Point[]) {
   const stamp=new T.Object3D();
   const samples:Vec[]=[];
   stamp.rotation.x=-Math.PI/2;
-  let origin=start, skip=Math.max(1.26,lead*.68), count=0;
-  for(const point of path) {
-    const length=distance(origin,point);
+  // Keep dot spacing anchored at the destination, so walking does not shift the trail on straight segments.
+  let skip=.25, count=0;
+  for(let i=path.length-1;i>=0;i--) {
+    const from=path[i], to=path[i-1]??start;
+    const length=distance(from,to);
     for(;skip<length && count<DOT_CAPACITY;skip+=.49) {
-      const x=T.MathUtils.lerp(origin[0],point[0],skip/length);
-      const z=T.MathUtils.lerp(origin[1],point[1],skip/length);
+      const x=T.MathUtils.lerp(from[0],to[0],skip/length);
+      const z=T.MathUtils.lerp(from[1],to[1],skip/length);
+      if(distance(start,[x,z])<1.18) continue;
       const y=guideHeight(x,z);
-      if(samples.length<12) samples.push([x,y,z]);
+      samples.push([x,y,z]);
       stamp.position.set(x,y,z);
       stamp.updateMatrix();
       mesh.setMatrixAt(count++,stamp.matrix);
     }
     skip-=length;
-    origin=point;
   }
   mesh.count=count;
   mesh.instanceMatrix.needsUpdate=true;
@@ -562,7 +566,7 @@ function guideTarget(s:Session,active:Target):Target {
   const south=fromSouth(s.pos);
   if(s.roadClear) return south?'arrival':'arrival-south';
   if(south) return 'crossing';
-  return s.gaze.checked||observed(s,'left')||observed(s,'right')?'crossing-north':active;
+  return usingCrossing(s)?'crossing-north':active;
 }
 function visibleFrom(s:Session,target:Target) {
   if(!targetAvailable(s,target)) return false;
@@ -596,9 +600,9 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper,turnCue}:Scen
   const trail=useRef<T.InstancedMesh>(null);
   const board=useRef<T.Group>(null);
   const lift=useRef(0);
-  const guideCache=useRef<{at:Point;key:string;path:Point[];yaw:number;samples:Vec[]}|null>(null);
-  const outlines=useRef<Partial<Record<Target,T.Group>>>({});
-  const pointerAim=useRef<T.Vector2|null>(null);
+  const guideCache=useRef<{at:Point;key:string;path:Point[];samples:Vec[]}|null>(null);
+  const outlines=useRef<Partial<Record<OutlineTarget,T.Group>>>({});
+  const approachedPress=useRef<Press|null>(null);
   const soundClock=useRef({elapsed:0,walked:0});
   const screenCorners=useMemo(()=>[new T.Vector3(),new T.Vector3()],[]);
   const lastUI=useRef('');
@@ -638,7 +642,6 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper,turnCue}:Scen
     const look=(e:PointerEvent)=>{
       if(!s.started || s.panel || s.film) return;
       if(document.pointerLockElement===el && e.pointerType==='mouse') {
-        pointerAim.current=null;
         if(gesture.current&&Math.abs(e.movementX)+Math.abs(e.movementY)>4) gesture.current.moved=true;
         s.look=null;
         s.gazeSelection=null;
@@ -648,7 +651,6 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper,turnCue}:Scen
         return;
       }
       const g=gesture.current;
-      if(e.pointerType==='mouse'&&!g) pointerAim.current=e.target===el?cursor(e).clone():null;
       if(!g || g.id!==e.pointerId) return;
       if(Math.hypot(e.clientX-g.x,e.clientY-g.y)>(e.pointerType==='mouse'?4:8)) g.moved=true;
       if(g.moved) {
@@ -678,7 +680,7 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper,turnCue}:Scen
         return p.distance<26 && !blockedView(s.pos,[x,z],true);
       });
       if(picked) openNearby(s,picked.object.userData.target as Target);
-      else if(e.pointerType==='mouse' && s.settings.control==='mouse' && el.requestPointerLock) {
+      else if(e.pointerType==='mouse' && s.settings.control==='mouse' && !usingCrossing(s) && el.requestPointerLock) {
         if(document.pointerLockElement!==el) {
           try { void el.requestPointerLock()?.catch(()=>say(s,'Mouse lock unavailable. Drag to look.')); } catch { say(s,'Mouse lock unavailable. Drag to look.'); }
         }
@@ -839,25 +841,26 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper,turnCue}:Scen
       }));
     }
     const active=objective(s);
+    const machine=machinePart(active)?.[0];
+    if(machine) {
+      const approachDistance=distance(s.pos,[pressX[machine],PRESS_Z]);
+      const arrived=approachedPress.current===machine;
+      approachedPress.current=approachDistance<(arrived?5.35:4.55)?machine:null;
+    } else approachedPress.current=null;
+    const highlight:OutlineTarget=machine&&approachedPress.current!==machine?`press-${machine}`:active;
     const guide=trail.current!;
-    guide.visible=s.started&&!s.panel&&!f&&!s.focus&&!s.safety.reported;
+    guide.visible=s.started&&!s.panel&&!f&&!s.focus&&!s.safety.reported&&!s.crossingDanger;
     const cue=turnCue.current;
     if(cue) cue.hidden=true;
     if(guide.visible) {
       const target=guideTarget(s,active);
-      const key=[target,s.roadClear,s.safety.door,Math.round(fov)].join('|');
-      if(!guideCache.current || guideCache.current.key!==key || distance(s.pos,guideCache.current.at)>.26) {
+      const key=[target,s.roadClear,s.safety.door].join('|');
+      if(!guideCache.current || guideCache.current.key!==key || distance(s.pos,guideCache.current.at)>.34) {
         const point=positions[target].point;
         const path=s.roadClear?walkingRoute(s,point):route(s.pos,point,s.safety.door);
-        guideCache.current={at:[...s.pos],key,path:path??[],yaw:Infinity,samples:[]};
+        guideCache.current={at:[...s.pos],key,path:path??[],samples:plotGuide(guide,s.pos,path??[])};
       }
       const trace=guideCache.current;
-      if(!Number.isFinite(trace.yaw)||Math.abs(angleDelta(trace.yaw,m.yaw))>.08) {
-        const lead=1.72/(viewSlope*.44);
-        const path=facingGuide(trace.at,trace.path,m.yaw,lead,s.safety.door,s.roadClear);
-        trace.samples=plotGuide(guide,trace.at,path,lead);
-        trace.yaw=m.yaw;
-      }
       const first=trace.path.find(point=>distance(s.pos,point)>.45);
       if(cue&&first&&!trace.samples.some(point=>{
         projected.set(...point);
@@ -870,8 +873,6 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper,turnCue}:Scen
         if(!cue.hidden) cue.dataset.side=turn>0?'left':'right';
       }
     }
-    let aimed:Target|undefined, bestAim=.39;
-    const lit=new Set<Target>();
     for(const [id,v] of targetList) {
       const el=markers.current[id];
       if(!el) continue;
@@ -885,28 +886,13 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper,turnCue}:Scen
       if(visible) {
         el.style.left=`${(projected.x+1)*50}%`;
         el.style.top=`${(1-projected.y)*50}%`;
-        el.dataset.primary=String(active===id);
-        if(outlineShapes[id]&&distance(s.pos,v.point)<5.4) {
-          if(id===active) lit.add(id);
-          const cursor=pointerAim.current;
-          const aim=el.matches(':hover,:focus-visible')?-1:Math.hypot(projected.x-(cursor?.x??0),projected.y-(cursor?.y??0));
-          if(aim<bestAim) {aimed=id;bestAim=aim;}
-        }
+        el.dataset.primary=String(active===id&&(highlight===id||!outlineShapes[highlight]));
+        el.dataset.outlined=String(highlight===id&&!!outlineShapes[id]&&!s.safety.reported);
       }
     }
-    if(aimed) lit.add(aimed);
-    if(s.focus&&!s.panel&&!f) lit.add(s.focus.target);
+    const showOutline=s.started&&!s.panel&&!f&&!s.safety.reported;
     for(const [key,group] of Object.entries(outlines.current)) {
-      const id=key as Target;
-      const worn=isGear(id)&&s.safety.ppe.includes(id);
-      group.visible=lit.has(id)&&!worn;
-      if(markers.current[id]) markers.current[id]!.dataset.outlined=String(group.visible);
-      if(group.visible&&isGear(id)) {
-        const held=s.focus?.target===id;
-        group.position.y=T.MathUtils.damp(group.position.y,gear[id].anchor[1]+(held?.07:0),9,dt);
-        group.position.z=T.MathUtils.damp(group.position.z,gear[id].anchor[2]+(held?.10:0),9,dt);
-        group.rotation.y=T.MathUtils.damp(group.rotation.y,held?.14:0,8,dt);
-      }
+      group.visible=showOutline&&key===highlight;
     }
     if(floor.current) {
       floor.current.visible=!!s.nav && !s.panel;
@@ -925,9 +911,9 @@ function Runner({session:s,keys,markers,update,touch,monitor,paper,turnCue}:Scen
       <circleGeometry args={[.072,10]}/><meshBasicMaterial color="#ffce7c" transparent opacity={.92} depthWrite={false} polygonOffset polygonOffsetFactor={-2}/>
     </instancedMesh>
     <mesh ref={floor} visible={false} rotation-x={-Math.PI/2}><ringGeometry args={[.24,.305,28]}/><meshBasicMaterial color="#ffd08a" transparent opacity={.83} depthWrite={false}/></mesh>
-    {Object.entries(outlineShapes).map(([id,shape])=><ObjectOutline key={id} shape={shape} bind={group=>{
-      if(group) outlines.current[id as Target]=group;
-      else delete outlines.current[id as Target];
+    {(Object.entries(outlineShapes) as [OutlineTarget,OutlineShape][]).map(([id,shape])=><ObjectOutline key={id} id={id} shape={shape} bind={group=>{
+      if(group) outlines.current[id]=group;
+      else delete outlines.current[id];
     }}/>) }
   </>;
 }

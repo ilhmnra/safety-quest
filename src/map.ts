@@ -145,28 +145,6 @@ export function clearSegment(a:Point,b:Point,doorOpen:boolean) {
   return !solid(b,doorOpen)&&!(doorOpen?openRects:closedRects).some(rect=>intersects(a,b,rect));
 }
 
-export function facingGuide(origin:Point,path:Point[],yaw:number,lead:number,doorOpen:boolean,roadClear:boolean) {
-  const first=path.find(point=>distance(origin,point)>.08);
-  if(!first) return path;
-  const angle=Math.atan2(origin[0]-first[0],origin[1]-first[1])-yaw;
-  const turn=Math.atan2(Math.sin(angle),Math.cos(angle));
-  if(Math.abs(turn)<.24) return path;
-  const onSameBank=(point:Point)=>roadClear || (origin[1]>=ROAD.near ? point[1]>=ROAD.near : point[1]<=ROAD.far);
-  const walkable=(a:Point,b:Point)=>onSameBank(b)&&clearSegment(a,b,doorOpen);
-  // The foreground bend may only rejoin the real route along walkable segments.
-  const sign=Math.sign(turn);
-  for(const span of [lead+.92,lead+.25,lead*.83,lead*.61]) {
-    for(const offset of [.02,.17,.26,-.19]) {
-      const heading=yaw+sign*offset;
-      const point:Point=[origin[0]-Math.sin(heading)*span,origin[1]-Math.cos(heading)*span];
-      if(!walkable(origin,point)) continue;
-      const join=path.findIndex(p=>distance(point,p)>.25&&walkable(point,p));
-      if(join>=0) return [point,...path.slice(join)];
-    }
-  }
-  return path;
-}
-
 export function route(from: Point, to: Point, doorOpen: boolean): Point[] | null {
   const pass=(p:Point)=>!solid(p,doorOpen);
   const lineClear=(a:Point,b:Point)=>clearSegment(a,b,doorOpen);

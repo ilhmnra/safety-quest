@@ -10,10 +10,13 @@ const NEAR_MISS_TIME=2.65;
 const playerRadius=.29;
 type Lane=0|1;
 export type TrafficSide='left'|'right';
+export type TruckDirection=-1|1;
 const lanes=[0,1] as const;
 const direction=(lane:Lane)=>lane===0?1:-1;
 const laneOf=(side:-1|1):Lane=>side===1?0:1;
 export const fromSouth=(pos:Point)=>pos[1]>(ROAD.near+ROAD.far)/2;
+export const truckFrom=(side:TrafficSide,south:boolean):TruckDirection=>(side==='right')===south?1:-1;
+export const inTruckLane=(point:Point,side:TruckDirection)=>Math.abs(point[1]-ROAD.lanes[laneOf(side)])<=TRUCK_HALF_WIDTH+playerRadius;
 export const startTraffic=():[number,number]=>[49,-44];
 
 export function truckMotion(s:Session,lane:Lane) {
@@ -37,6 +40,11 @@ export function roadOccupied(s:Session,next:Point) {
     return truck.visible && Math.abs(truck.x-next[0])<TRUCK_HALF_LENGTH+playerRadius &&
       Math.abs(truck.z-next[1])<TRUCK_HALF_WIDTH+playerRadius;
   });
+}
+
+export function approachingLane(s:Session,point:Point,side:TruckDirection) {
+  const truck=truckMotion(s,laneOf(side));
+  return truck.visible&&(truck.x-point[0])*side>=-(TRUCK_HALF_LENGTH+playerRadius);
 }
 
 export function crossingThreat(s:Session):TrafficSide|null {
@@ -72,17 +80,14 @@ export function advanceTraffic(s:Session,dt:number) {
     }
   }
 }
-export function dangerFilm(s:Session,point:Point,unchecked:boolean,left:boolean,right:boolean):Extract<Film,{kind:'near'}> {
-  const south=fromSouth(s.pos);
-  const side=unchecked && left!==right ? (left===south?1:-1)
-    : unchecked && s.trafficSide ? ((s.trafficSide==='right')===south?1:-1) : (south?1:-1);
+export function dangerFilm(s:Session,point:Point,south:boolean,side:TruckDirection,unchecked:boolean,holdView:boolean):Extract<Film,{kind:'near'}> {
   const lane=laneOf(side);
   const targetX=point[0]+side*(TRUCK_HALF_LENGTH+1.3);
   const gap=(s.traffic[lane]-targetX)*side;
   const useAmbient=gap>=8&&gap<=42;
   const startX=useAmbient?s.traffic[lane]:targetX+side*SPEED*NEAR_MISS_TIME;
   return {
-    kind:'near', time:0, side, cut:NEAR_MISS_TIME, horn:1.16, startX, endX:targetX, useAmbient, holdView:unchecked&&left!==right, curb:south?ROAD.near:ROAD.far,
+    kind:'near', time:0, side, cut:NEAR_MISS_TIME, horn:1.16, startX, endX:targetX, useAmbient, holdView, curb:south?ROAD.near:ROAD.far,
     unchecked, restart:south?[0,22.7]:[0,5.75],
   };
 }

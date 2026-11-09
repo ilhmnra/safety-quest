@@ -224,6 +224,7 @@ for(const x of [-7.65,-1.95]) {
 }
 
 // PPE cabinetry, shelves and physical equipment
+const cabinetStart=pieces.length;
 box(6.9,1.25,-5.22,3.1,2.5,1.09,slate);
 box(6.9,1.27,-4.651,2.9,2.29,.055,'#2d494a');
 for(const y of [.18,.91,1.61,2.39]) box(6.9,y,-4.93,2.91,.092,.62,steel);
@@ -233,6 +234,8 @@ for(const x of [5.93,6.89,7.87]) {
   box(x+.19,.55,-4.56,.17,.055,.065,cream);
   box(x,2.19,-4.66,.68,.18,.06,'#78908a');
 }
+export const cabinetBoxes=pieces.slice(cabinetStart);
+
 // Preparation table and safety cabinet peg.
 const [tableX,tableZ]=PREP_TABLE;
 box(tableX,1.03,tableZ,1.08,.12,.72,'#947d5f');
